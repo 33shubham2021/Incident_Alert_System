@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta  name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AlertMap — Real-Time Traffic & Road Alerts</title>
+
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <!-- Leaflet Routing Machine -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.css" />
+  <!-- Google Font -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+  <!-- ── Top nav bar ── -->
+  <header class="topbar">
+    <div class="topbar-brand">
+      <div class="brand-icon">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+          <path d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>
+        </svg>
+      </div>
+      <span class="brand-name">AlertMap</span>
+      <span class="brand-sub">Real-Time Intelligence</span>
+    </div>
+
+    <div class="topbar-pills">
+      <span class="pill pill-traffic">
+        <span class="dot dot-red"></span> Traffic
+      </span>
+      <span class="pill pill-climate">
+        <span class="dot dot-blue"></span> Climate
+      </span>
+      <span class="pill pill-closure">
+        <span class="dot dot-amber"></span> Closures
+      </span>
+      <span class="pill pill-accident">
+        <span class="dot dot-orange"></span> Accidents
+      </span>
+    </div>
+
+    <div class="topbar-right">
+      <div id="userBadge" class="user-badge hidden">
+        <div class="avatar" id="avatarInitial">U</div>
+        <span id="userEmailLabel" class="user-email-label">user@email.com</span>
+        <button class="btn-logout" onclick="logout()">Sign out</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- ── Main layout ── -->
+  <main class="layout">
+
+    <!-- ══ LEFT: Map panel ══ -->
+    <section class="map-panel">
+
+      <!-- Map toolbar -->
+      <div class="map-toolbar">
+        <div class="search-box">
+          <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+          </svg>
+          <input id="searchInput" type="text" placeholder="Search location, road, city…" />
+          <button class="search-btn" onclick="searchLocation()">Go</button>
+        </div>
+
+        <div class="map-controls">
+          <button class="map-btn" title="My Location" onclick="goToMyLocation()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/>
+            </svg>
+          </button>
+          <button class="map-btn" title="Satellite View" onclick="toggleLayer()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18M15 3v18"/>
+            </svg>
+          </button>
+          <button class="map-btn" title="Traffic Layer" onclick="toggleTrafficLayer()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 22V12M12 12l-3-3m3 3 3-3M6 6l-3 3m3-3L3 3M18 6l3 3m-3-3 3-3"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- Leaflet map -->
+      <div id="map"></div>
+
+      <!-- Alert Legend -->
+      <div class="map-legend">
+        <p class="legend-title">Live Alerts</p>
+        <div class="legend-items">
+          <span class="legend-item"><span class="leg-dot" style="background:#ef4444"></span>Traffic Jam</span>
+          <span class="legend-item"><span class="leg-dot" style="background:#3b82f6"></span>Climate</span>
+          <span class="legend-item"><span class="leg-dot" style="background:#f59e0b"></span>Road Closure</span>
+          <span class="legend-item"><span class="leg-dot" style="background:#f97316"></span>Accident</span>
+        </div>
+      </div>
+
+      <!-- Simulated live alert ticker -->
+      <div class="alert-ticker">
+        <span class="ticker-label">LIVE</span>
+        <div class="ticker-track">
+          <span class="ticker-text" id="tickerText"></span>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- ══ RIGHT: Auth panel ══ -->
+    <aside class="auth-panel">
+
+      <div class="auth-card">
+
+        <!-- Illustration / brand area -->
+        <div class="auth-header">
+          <div class="auth-hero">
+            <div class="hero-rings">
+              <div class="ring ring-1"></div>
+              <div class="ring ring-2"></div>
+              <div class="ring ring-3"></div>
+              <div class="hero-icon">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2">
+                  <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
+                  <circle cx="12" cy="10" r="3"/>
+                </svg>
+              </div>
+            </div>
+          </div>
+          <h1 class="auth-title">Welcome back</h1>
+          <p class="auth-sub">Sign in to access real-time road alerts</p>
+        </div>
+
+        <!-- Tab switcher -->
+        <div class="tab-bar">
+          <button class="tab active" id="tabLogin" onclick="switchTab('login')">Sign In</button>
+          <button class="tab" id="tabRegister" onclick="switchTab('register')">Register</button>
+        </div>
+
+        <!-- ── LOGIN FORM ── -->
+        <form id="loginForm" class="auth-form" onsubmit="handleLogin(event)">
+
+          <div class="field-group">
+            <label class="field-label">Email address</label>
+            <div class="input-wrap">
+              <svg class="input-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/>
+              </svg>
+              <input type="email" id="loginEmail" class="field-input" placeholder="you@example.com" required />
+            </div>
+          </div>
+
+          <div class="field-group">
+            <label class="field-label">Password</label>
+            <div class="input-wrap">
+              <svg class="input-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+              </svg>
+              <input type="password" id="loginPassword" class="field-input" placeholder="••••••••" required />
+              <button type="button" class="toggle-pw" onclick="togglePassword('loginPassword', this)">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+              </button>
+            </div>
+          </div>
+
+          <div class="field-row">
+            <label class="checkbox-label">
+              <input type="checkbox" id="rememberMe" /> Remember me
+            </label>
+            <a href="#" class="link-subtle">Forgot password?</a>
+          </div>
+
+          <button type="submit" class="btn-primary" id="loginBtn">
+            <span class="btn-text">Sign In</span>
+            <span class="btn-spinner hidden"></span>
+          </button>
+
+        </form>
+
+        <!-- ── REGISTER FORM ── -->
+        <form id="registerForm" class="auth-form hidden" onsubmit="handleRegister(event)">
+
+          <div class="field-row-dual">
+            <div class="field-group">
+              <label class="field-label">First name</label>
+              <div class="input-wrap">
+                <input type="text" id="regFirstName" class="field-input" placeholder="Jane" required />
+              </div>
+            </div>
+            <div class="field-group">
+              <label class="field-label">Last name</label>
+              <div class="input-wrap">
+                <input type="text" id="regLastName" class="field-input" placeholder="Doe" required />
+              </div>
+            </div>
+          </div>
+
+          <div class="field-group">
+            <label class="field-label">Email address</label>
+            <div class="input-wrap">
+              <svg class="input-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/>
+              </svg>
+              <input type="email" id="regEmail" class="field-input" placeholder="you@example.com" required />
+            </div>
+          </div>
+
+          <div class="field-group">
+            <label class="field-label">Password</label>
+            <div class="input-wrap">
+              <svg class="input-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+              </svg>
+              <input type="password" id="regPassword" class="field-input" placeholder="Min. 8 characters" required />
+              <button type="button" class="toggle-pw" onclick="togglePassword('regPassword', this)">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+              </button>
+            </div>
+            <div class="pw-strength-bar" id="pwStrengthBar">
+              <div class="pw-strength-fill" id="pwStrengthFill"></div>
+            </div>
+            <span class="pw-strength-label" id="pwStrengthLabel"></span>
+          </div>
+
+          <div class="field-group">
+            <label class="field-label">Confirm password</label>
+            <div class="input-wrap">
+              <svg class="input-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+              </svg>
+              <input type="password" id="regConfirm" class="field-input" placeholder="Repeat password" required />
+            </div>
+          </div>
+
+          <label class="checkbox-label" style="margin-bottom:1rem">
+            <input type="checkbox" id="agreeTerms" required /> I agree to the <a href="#" class="link-subtle">Terms of Service</a>
+          </label>
+
+          <button type="submit" class="btn-primary" id="registerBtn">
+            <span class="btn-text">Create Account</span>
+            <span class="btn-spinner hidden"></span>
+          </button>
+
+        </form>
+
+        <!-- ── Toast / message area ── -->
+        <div id="authMsg" class="auth-msg hidden"></div>
+
+        <!-- ── JWT Token viewer ── -->
+        <div id="tokenBox" class="token-box hidden">
+          <div class="token-header">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+            </svg>
+            <span>JWT Token</span>
+            <button class="copy-btn" onclick="copyToken()">Copy</button>
+          </div>
+          <div class="token-parts" id="tokenParts"></div>
+          <div class="token-decoded" id="tokenDecoded"></div>
+        </div>
+
+      </div>
+
+      <!-- API Endpoint config (dev helper) -->
+      <div class="api-config">
+        <div class="api-config-header" onclick="toggleApiConfig()">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/>
+          </svg>
+          <span>API Configuration</span>
+          <svg class="chevron" id="apiChevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="6 9 12 15 18 9"/>
+          </svg>
+        </div>
+        <div class="api-config-body hidden" id="apiConfigBody">
+          <div class="field-group">
+            <label class="field-label">Base URL</label>
+            <input type="text" id="apiBaseUrl" class="field-input" value="http://localhost:8000" />
+          </div>
+          <div class="field-group">
+            <label class="field-label">Login endpoint</label>
+            <input type="text" id="apiLoginPath" class="field-input" value="/auth/login" />
+          </div>
+          <div class="field-group">
+            <label class="field-label">Register endpoint</label>
+            <input type="text" id="apiRegisterPath" class="field-input" value="/auth/register" />
+          </div>
+          <div class="field-group">
+            <label class="field-label">Token field in response</label>
+            <input type="text" id="apiTokenField" class="field-input" value="access_token" />
+          </div>
+          <div class="api-method-row">
+            <label class="field-label">Request format</label>
+            <div class="radio-group">
+              <label><input type="radio" name="reqFormat" value="json" checked> JSON</label>
+              <label><input type="radio" name="reqFormat" value="form"> Form</label>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </aside>
+  </main>
+
+  <!-- Leaflet JS -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
