@@ -31,6 +31,8 @@ const register = async (req, res) => {
 
 const login = async (req, res) => {
   try {
+    console.log(req.body)
+
     const { mobile_number, password } = req.body;
 
     if (!mobile_number || !password) {

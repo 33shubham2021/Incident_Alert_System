@@ -5,6 +5,18 @@
 
 'use strict';
 
+/* ── Seed DOM inputs from config.js so dev panel reflects configured defaults ── */
+(function applyConfig() {
+  const c = window.APP_CONFIG;
+  if (!c) return;
+  document.getElementById('apiBaseUrl').value      = c.api.baseUrl;
+  document.getElementById('apiLoginPath').value    = c.api.loginPath;
+  document.getElementById('apiRegisterPath').value = c.api.registerPath;
+  document.getElementById('apiTokenField').value   = c.api.tokenField;
+  const fmt = document.querySelector(`input[name="reqFormat"][value="${c.api.requestFormat}"]`);
+  if (fmt) fmt.checked = true;
+})();
+
 /* ────────────────────────────────────
    MAP SETUP
    ──────────────────────────────────── */
@@ -19,9 +31,10 @@ const satelliteTile = L.tileLayer(
   { attribution: 'Tiles © Esri', maxZoom: 19 }
 );
 
+const _mapCfg = (window.APP_CONFIG && window.APP_CONFIG.map) || {};
 const map = L.map('map', {
-  center: [51.505, -0.09],
-  zoom: 13,
+  center: _mapCfg.center || [51.505, -0.09],
+  zoom:   _mapCfg.zoom   || 13,
   layers: [streetTile],
   zoomControl: false,
 });
@@ -253,11 +266,11 @@ async function handleLogin(e) {
   let body, headers = {};
 
   if (format === 'json') {
-    body = JSON.stringify({ mobile, password });
+    body = JSON.stringify({ mobile_number: mobile, password });
     headers['Content-Type'] = 'application/json';
   } else {
     const fd = new FormData();
-    fd.append('username', mobile);
+    fd.append('mobile_number', mobile);
     fd.append('password', password);
     body = fd;
   }
@@ -309,11 +322,11 @@ async function handleRegister(e) {
   e.preventDefault();
   clearMsg();
 
-  const firstName = document.getElementById('regFirstName').value.trim();
-  const lastName  = document.getElementById('regLastName').value.trim();
-  const email     = document.getElementById('regEmail').value.trim();
-  const password  = document.getElementById('regPassword').value;
-  const confirm   = document.getElementById('regConfirm').value;
+  const name     = document.getElementById('regFullName').value.trim();
+  const email    = document.getElementById('regEmail').value.trim();
+  const mobile_number = document.getElementById('regMobile').value.trim();
+  const password = document.getElementById('regPassword').value;
+  const confirm  = document.getElementById('regConfirm').value;
 
   if (password !== confirm) {
     showMsg('Passwords do not match.');
@@ -328,13 +341,13 @@ async function handleRegister(e) {
   let body, headers = {};
 
   if (format === 'json') {
-    body = JSON.stringify({ first_name: firstName, last_name: lastName, email, password });
+    body = JSON.stringify({ name, email, mobile_number, password });
     headers['Content-Type'] = 'application/json';
   } else {
     const fd = new FormData();
-    fd.append('first_name', firstName);
-    fd.append('last_name', lastName);
+    fd.append('name', name);
     fd.append('email', email);
+    fd.append('mobile_number', mobile_number);
     fd.append('password', password);
     body = fd;
   }
@@ -556,6 +569,7 @@ function openRegisterModal() {
 function closeRegisterModal() {
   document.getElementById('registerModal').classList.add('hidden');
   document.getElementById('regModalForm').reset();
+  document.getElementById('regModalMsg').className = 'auth-msg hidden';
   switchTab('login');
 }
 
@@ -565,7 +579,7 @@ function handleRegModalBackdrop(e) {
   }
 }
 
-function handleRegisterModal(e) {
+async function handleRegisterModal(e) {
   e.preventDefault();
 
   const password = document.getElementById('regModalPassword').value;
@@ -579,23 +593,51 @@ function handleRegisterModal(e) {
   }
   mismatch.classList.add('hidden');
 
-  const btn = document.getElementById('regModalBtn');
+  const name          = document.getElementById('regModalName').value.trim();
+  const email         = document.getElementById('regModalEmail').value.trim();
+  const rawCode       = document.getElementById('regModalCountryCode').value;
+  const countryCode   = rawCode.replace(/-[A-Z]+$/, ''); // strip "+1-CA" → "+1"
+  const phone         = document.getElementById('regModalPhone').value.trim();
+  const mobile_number = `${countryCode}-${phone}`;
+
+  const btn   = document.getElementById('regModalBtn');
+  const msgEl = document.getElementById('regModalMsg');
+
   btn.querySelector('.btn-text').classList.add('hidden');
   btn.querySelector('.btn-spinner').classList.remove('hidden');
   btn.disabled = true;
+  msgEl.classList.add('hidden');
 
-  // Hardcoded success — replace with real API call when backend is ready
-  setTimeout(() => {
+  try {
+    const res = await fetch(`${getApiBase()}${getRegisterPath()}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, email, mobile_number, password }),
+    });
+
+    const data = await res.json().catch(() => ({}));
+
+    if (!res.ok) {
+      const detail = data.message || data.detail || data.error || `HTTP ${res.status}`;
+      msgEl.textContent = detail;
+      msgEl.className = 'auth-msg error';
+    } else {
+      document.getElementById('registerModal').classList.add('hidden');
+      document.getElementById('regModalForm').reset();
+      document.getElementById('regModalPwStrengthFill').style.width = '';
+      document.getElementById('regModalPwStrengthLabel').textContent = '';
+      document.getElementById('regSuccessModal').classList.remove('hidden');
+    }
+  } catch (err) {
+    msgEl.textContent = err.name === 'TypeError'
+      ? 'Cannot reach API — check connection.'
+      : `Unexpected error: ${err.message}`;
+    msgEl.className = 'auth-msg error';
+  } finally {
     btn.querySelector('.btn-text').classList.remove('hidden');
     btn.querySelector('.btn-spinner').classList.add('hidden');
     btn.disabled = false;
-
-    document.getElementById('registerModal').classList.add('hidden');
-    document.getElementById('regModalForm').reset();
-    document.getElementById('regModalPwStrengthFill').style.width = '';
-    document.getElementById('regModalPwStrengthLabel').textContent = '';
-    document.getElementById('regSuccessModal').classList.remove('hidden');
-  }, 800);
+  }
 }
 
 function handleRegSuccessOk() {

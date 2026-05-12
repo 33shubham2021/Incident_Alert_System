@@ -186,18 +186,14 @@
         <!-- ── REGISTER FORM ── -->
         <form id="registerForm" class="auth-form hidden" onsubmit="handleRegister(event)">
 
-          <div class="field-row-dual">
-            <div class="field-group">
-              <label class="field-label">First name</label>
-              <div class="input-wrap">
-                <input type="text" id="regFirstName" class="field-input" placeholder="Jane" required />
-              </div>
-            </div>
-            <div class="field-group">
-              <label class="field-label">Last name</label>
-              <div class="input-wrap">
-                <input type="text" id="regLastName" class="field-input" placeholder="Doe" required />
-              </div>
+          <div class="field-group">
+            <label class="field-label">Full Name</label>
+            <div class="input-wrap">
+              <svg class="input-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+                <circle cx="12" cy="7" r="4"/>
+              </svg>
+              <input type="text" id="regFullName" class="field-input" placeholder="Jane Doe" required autocomplete="name" />
             </div>
           </div>
 
@@ -208,6 +204,16 @@
                 <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/>
               </svg>
               <input type="email" id="regEmail" class="field-input" placeholder="you@example.com" required />
+            </div>
+          </div>
+
+          <div class="field-group">
+            <label class="field-label">Mobile Number</label>
+            <div class="input-wrap">
+              <svg class="input-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/>
+              </svg>
+              <input type="tel" id="regMobile" class="field-input" placeholder="+91-9876543210" required autocomplete="tel" />
             </div>
           </div>
 
@@ -432,6 +438,8 @@
           <span class="btn-spinner hidden"></span>
         </button>
 
+        <div id="regModalMsg" class="auth-msg hidden" style="margin-top:.75rem"></div>
+
       </form>
     </div>
   </div>
@@ -452,6 +460,7 @@
 
   <!-- Leaflet JS -->
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="config.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
