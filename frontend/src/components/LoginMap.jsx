@@ -1,50 +1,61 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import L from 'leaflet';
+import { MAP_CONFIG, ALERTS_API } from '../config';
+import { fetchRecentAlerts } from '../services/alertService';
 
-const ALERT_DATA = [
-  { type: 'traffic',  lat: 51.510, lng: -0.085, title: 'Heavy Traffic Jam',       desc: 'A40 Westbound — 40 min delay',        severity: 'High'   },
-  { type: 'accident', lat: 51.497, lng: -0.105, title: 'Accident Reported',        desc: '2 vehicles — lane blocked',           severity: 'Medium' },
-  { type: 'closure',  lat: 51.515, lng: -0.070, title: 'Road Closure',             desc: 'Waterloo Bridge — until 18:00',       severity: 'High'   },
-  { type: 'climate',  lat: 51.503, lng: -0.120, title: 'Heavy Rain Warning',       desc: 'Reduced visibility, slow down',       severity: 'Low'    },
-  { type: 'traffic',  lat: 51.522, lng: -0.095, title: 'Traffic Build-up',         desc: 'City Road — 15 min delay',            severity: 'Medium' },
-  { type: 'closure',  lat: 51.488, lng: -0.095, title: 'Construction Zone',        desc: 'Vauxhall Bridge — 1 lane open',       severity: 'Medium' },
-  { type: 'climate',  lat: 51.530, lng: -0.075, title: 'Fog Alert',                desc: 'Low visibility on A10 North',         severity: 'Low'    },
-  { type: 'accident', lat: 51.480, lng: -0.110, title: 'Minor Collision',          desc: 'Clapham High St — cleared soon',      severity: 'Low'    },
-];
+const MARKER_COLORS = {
+  traffic:  '#ef4444',
+  accident: '#f97316',
+  closure:  '#f59e0b',
+  climate:  '#3b82f6',
+};
 
-const MARKER_COLORS = { traffic: '#ef4444', accident: '#f97316', closure: '#f59e0b', climate: '#3b82f6' };
-const TYPE_LABELS   = { traffic: 'Traffic Jam', accident: 'Accident', closure: 'Road Closure', climate: 'Climate Alert' };
-const TICKER_MSGS   = [
-  '🔴 Heavy Traffic on A40 Westbound — 40 min delay  ·  ',
-  '🟠 Accident cleared on Clapham High St  ·  ',
-  '🟡 Road Closure: Waterloo Bridge until 18:00 — use alternative routes  ·  ',
-  '🔵 Heavy Rain Warning in effect — reduce speed on A10 North  ·  ',
-  '🟠 Construction work on Vauxhall Bridge — expect delays  ·  ',
-  '🔴 Major congestion on City Road — 15 min delay  ·  ',
-];
+const TYPE_LABELS = {
+  traffic:  'Traffic',
+  accident: 'Accident',
+  closure:  'Road Closure',
+  climate:  'Climate Alert',
+};
 
-function severityColor(s) {
-  return s === 'High' ? '#ef4444' : s === 'Medium' ? '#f97316' : '#22c55e';
-}
+const TYPE_EMOJI = {
+  traffic:  '🔴',
+  accident: '🟠',
+  closure:  '🟡',
+  climate:  '🔵',
+};
 
 function makeIcon(type) {
+  const color = MARKER_COLORS[type] ?? '#6b7280';
   return L.divIcon({
     className: '',
-    html: `<div class="custom-marker marker-${type}" style="background:${MARKER_COLORS[type]}"></div>`,
+    html: `<div class="custom-marker marker-${type}" style="background:${color}"></div>`,
     iconSize: [14, 14],
     iconAnchor: [7, 7],
   });
 }
 
 export default function LoginMap() {
-  const containerRef = useRef(null);
-  const mapRef       = useRef(null);
-  const layersRef    = useRef({});
+  const containerRef  = useRef(null);
+  const mapRef        = useRef(null);
+  const layersRef     = useRef({});
+  const alertLayerRef = useRef(null);
 
-  const [searchQuery, setSearchQuery]       = useState('');
-  const [currentLayer, setCurrentLayer]     = useState('street');
-  const [trafficVisible, setTrafficVisible] = useState(true);
+  const [alerts, setAlerts]               = useState([]);
+  const [searchQuery, setSearchQuery]     = useState('');
+  const [currentLayer, setCurrentLayer]   = useState('street');
+  const [alertsVisible, setAlertsVisible] = useState(true);
 
+  // ── fetch alerts from API ──────────────────────────────────────────────────
+  const loadAlerts = useCallback(async () => {
+    try {
+      const data = await fetchRecentAlerts();
+      setAlerts(data);
+    } catch {
+      // retain last good state on transient errors
+    }
+  }, []);
+
+  // ── map init (runs once) ───────────────────────────────────────────────────
   useEffect(() => {
     const container = containerRef.current;
     if (!container || mapRef.current) return;
@@ -59,38 +70,69 @@ export default function LoginMap() {
     );
 
     const map = L.map(container, {
-      center: [51.505, -0.09],
-      zoom: 13,
+      center: MAP_CONFIG.center,
+      zoom: MAP_CONFIG.zoom,
       layers: [streetTile],
       zoomControl: false,
     });
 
     L.control.zoom({ position: 'bottomright' }).addTo(map);
 
-    const markers = ALERT_DATA.map((a) => {
-      const m = L.marker([a.lat, a.lng], { icon: makeIcon(a.type) });
-      m.bindPopup(
-        `<span class="popup-badge" style="background:${MARKER_COLORS[a.type]}">${TYPE_LABELS[a.type]}</span>
-         <div class="popup-title">${a.title}</div>
-         <div class="popup-body">${a.desc}</div>
-         <div class="popup-body" style="margin-top:4px;font-weight:600;color:${severityColor(a.severity)}">Severity: ${a.severity}</div>`,
-        { maxWidth: 200 }
-      );
-      return m;
-    });
-
-    const trafficLayer = L.layerGroup(markers).addTo(map);
-
-    mapRef.current = map;
-    layersRef.current = { streetTile, satelliteTile, trafficLayer };
+    const alertLayer = L.layerGroup().addTo(map);
+    alertLayerRef.current = alertLayer;
+    mapRef.current        = map;
+    layersRef.current     = { streetTile, satelliteTile };
 
     return () => {
       map.remove();
-      mapRef.current = null;
-      layersRef.current = {};
+      mapRef.current        = null;
+      alertLayerRef.current = null;
+      layersRef.current     = {};
     };
   }, []);
 
+  // ── sync markers whenever alerts state updates ─────────────────────────────
+  useEffect(() => {
+    const layer = alertLayerRef.current;
+    if (!layer) return;
+
+    layer.clearLayers();
+    alerts.forEach((alert) => {
+      const type  = alert.alertType.toLowerCase();
+      const color = MARKER_COLORS[type] ?? '#6b7280';
+      const label = TYPE_LABELS[type]   ?? alert.alertType;
+
+      L.marker(
+        [parseFloat(alert.latitude), parseFloat(alert.longitude)],
+        { icon: makeIcon(type) }
+      )
+        .bindPopup(
+          `<span class="popup-badge" style="background:${color}">${label}</span>
+           <div class="popup-title">${label}</div>
+           <div class="popup-body">${alert.description}</div>`,
+          { maxWidth: 220 }
+        )
+        .addTo(layer);
+    });
+  }, [alerts]);
+
+  // ── initial fetch + polling ────────────────────────────────────────────────
+  useEffect(() => {
+    loadAlerts();
+    const id = setInterval(loadAlerts, ALERTS_API.pollIntervalMs);
+    return () => clearInterval(id);
+  }, [loadAlerts]);
+
+  // ── ticker: newest-first live alerts from API ──────────────────────────────
+  const tickerText = alerts.length
+    ? [...alerts]
+        .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+        .slice(0, 10)
+        .map((a) => `${TYPE_EMOJI[a.alertType.toLowerCase()] ?? '⚪'} ${a.description}  ·  `)
+        .join('')
+    : 'Connecting to live alert feed…  ·  ';
+
+  // ── controls ───────────────────────────────────────────────────────────────
   function toggleLayer() {
     const map = mapRef.current;
     const { streetTile, satelliteTile } = layersRef.current;
@@ -106,24 +148,23 @@ export default function LoginMap() {
     }
   }
 
-  function toggleTrafficLayer() {
-    const map = mapRef.current;
-    const { trafficLayer } = layersRef.current;
-    if (!map || !trafficLayer) return;
-    if (trafficVisible) {
-      map.removeLayer(trafficLayer);
+  function toggleAlertsLayer() {
+    const map   = mapRef.current;
+    const layer = alertLayerRef.current;
+    if (!map || !layer) return;
+    if (alertsVisible) {
+      map.removeLayer(layer);
     } else {
-      trafficLayer.addTo(map);
+      layer.addTo(map);
     }
-    setTrafficVisible((v) => !v);
+    setAlertsVisible((v) => !v);
   }
 
   function goToMyLocation() {
     const map = mapRef.current;
     if (!navigator.geolocation || !map) return;
     navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        const { latitude: lat, longitude: lng } = pos.coords;
+      ({ coords: { latitude: lat, longitude: lng } }) => {
         map.flyTo([lat, lng], 15, { duration: 1.4 });
         L.circleMarker([lat, lng], {
           radius: 8, fillColor: '#4f6ef7', color: 'white', weight: 2.5, fillOpacity: 1,
@@ -150,7 +191,7 @@ export default function LoginMap() {
   }
 
   async function searchLocation() {
-    const q = searchQuery.trim();
+    const q   = searchQuery.trim();
     const map = mapRef.current;
     if (!q || !map) return;
     try {
@@ -165,7 +206,8 @@ export default function LoginMap() {
         L.popup({ maxWidth: 280 })
           .setLatLng([+lat, +lon])
           .setContent(
-            `<div class="popup-title">${display_name.split(',')[0]}</div><div class="popup-body">${display_name}</div>`
+            `<div class="popup-title">${display_name.split(',')[0]}</div>
+             <div class="popup-body">${display_name}</div>`
           )
           .openOn(map);
       } else {
@@ -204,7 +246,7 @@ export default function LoginMap() {
               <rect x="3" y="3" width="18" height="18" rx="2" /><path d="M3 9h18M3 15h18M9 3v18M15 3v18" />
             </svg>
           </button>
-          <button className="map-btn" title="Toggle Traffic Layer" onClick={toggleTrafficLayer}>
+          <button className="map-btn" title="Toggle Alert Markers" onClick={toggleAlertsLayer}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M12 22V12M12 12l-3-3m3 3 3-3M6 6l-3 3m3-3L3 3M18 6l3 3m-3-3 3-3" />
             </svg>
@@ -217,9 +259,9 @@ export default function LoginMap() {
       <div className="map-legend">
         <p className="legend-title">Live Alerts</p>
         <div className="legend-items">
-          <span className="legend-item"><span className="leg-dot" style={{ background: '#ef4444' }} />Traffic Jam</span>
+          <span className="legend-item"><span className="leg-dot" style={{ background: '#ef4444' }} />Traffic</span>
           <span className="legend-item"><span className="leg-dot" style={{ background: '#3b82f6' }} />Climate</span>
-          <span className="legend-item"><span className="leg-dot" style={{ background: '#f59e0b' }} />Road Closure</span>
+          <span className="legend-item"><span className="leg-dot" style={{ background: '#f59e0b' }} />Closure</span>
           <span className="legend-item"><span className="leg-dot" style={{ background: '#f97316' }} />Accident</span>
         </div>
       </div>
@@ -227,7 +269,7 @@ export default function LoginMap() {
       <div className="alert-ticker">
         <span className="ticker-label">LIVE</span>
         <div className="ticker-track">
-          <span className="ticker-text">{TICKER_MSGS.join('')}</span>
+          <span className="ticker-text">{tickerText}</span>
         </div>
       </div>
     </section>
