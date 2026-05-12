@@ -191,11 +191,15 @@ document.getElementById('tickerText').textContent = tickerMessages.join('');
    ════════════════════════════════════ */
 
 function switchTab(tab) {
+  if (tab === 'register') {
+    openRegisterModal();
+    return;
+  }
   const isLogin = tab === 'login';
   document.getElementById('loginForm').classList.toggle('hidden', !isLogin);
   document.getElementById('registerForm').classList.toggle('hidden', isLogin);
   document.getElementById('tabLogin').classList.toggle('active', isLogin);
-  document.getElementById('tabRegister').classList.toggle('active', !isLogin);
+  document.getElementById('tabRegister').classList.toggle('active', false);
   clearMsg();
   hideTokenBox();
 }
@@ -525,4 +529,50 @@ function toggleApiConfig() {
   const chevron = document.getElementById('apiChevron');
   const open    = body.classList.toggle('hidden');
   chevron.classList.toggle('open', !open);
+}
+
+/* ════════════════════════════════════
+   REGISTER MODAL
+   ════════════════════════════════════ */
+
+function openRegisterModal() {
+  document.getElementById('registerModal').classList.remove('hidden');
+  document.getElementById('regModalName').focus();
+}
+
+function closeRegisterModal() {
+  document.getElementById('registerModal').classList.add('hidden');
+  document.getElementById('regModalForm').reset();
+  switchTab('login');
+}
+
+function handleRegModalBackdrop(e) {
+  if (e.target === document.getElementById('registerModal')) {
+    closeRegisterModal();
+  }
+}
+
+function handleRegisterModal(e) {
+  e.preventDefault();
+
+  const btn = document.getElementById('regModalBtn');
+  btn.querySelector('.btn-text').classList.add('hidden');
+  btn.querySelector('.btn-spinner').classList.remove('hidden');
+  btn.disabled = true;
+
+  // Hardcoded success — replace with real API call when backend is ready
+  setTimeout(() => {
+    btn.querySelector('.btn-text').classList.remove('hidden');
+    btn.querySelector('.btn-spinner').classList.add('hidden');
+    btn.disabled = false;
+
+    document.getElementById('registerModal').classList.add('hidden');
+    document.getElementById('regModalForm').reset();
+    document.getElementById('regSuccessModal').classList.remove('hidden');
+  }, 800);
+}
+
+function handleRegSuccessOk() {
+  document.getElementById('regSuccessModal').classList.add('hidden');
+  switchTab('login');
 }

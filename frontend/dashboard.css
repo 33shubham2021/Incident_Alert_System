@@ -518,6 +518,38 @@ body.dashboard-body {
 .drop-place-country { font-size: .73rem; color: var(--text-3); display: block; }
 
 /* ════════════════════════════════════
+   TEST NOTIFICATION SECTION
+   ════════════════════════════════════ */
+.notif-test-row {
+  display: flex;
+  align-items: center;
+  gap: .85rem;
+  flex-wrap: wrap;
+}
+
+.notif-preview-pill {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  padding: 9px 16px;
+  background: var(--surface-2);
+  border: 1.5px solid var(--border);
+  border-radius: 99px;
+  font-size: .82rem;
+  font-weight: 500;
+  color: var(--text-2);
+  flex-shrink: 0;
+}
+.notif-preview-pill svg { color: var(--text-3); flex-shrink: 0; }
+
+.notif-test-btn {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+}
+.notif-test-btn:disabled { opacity: .65; cursor: not-allowed; transform: none !important; }
+
+/* ════════════════════════════════════
    LIVE MAP SECTION
    ════════════════════════════════════ */
 .map-legend-inline {

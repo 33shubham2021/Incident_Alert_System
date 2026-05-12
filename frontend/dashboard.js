@@ -61,11 +61,11 @@ function setGreeting() {
    USER INFO
    ───────────────────────────────────── */
 function renderUserInfo() {
-  document.getElementById('dashName').textContent  = `${user.firstName} ${user.lastName}`;
-  document.getElementById('dashEmail').textContent = user.email;
-  document.getElementById('dashPhone').textContent = user.phone;
-  document.getElementById('dashAvatar').textContent =
-    (user.firstName[0] + user.lastName[0]).toUpperCase();
+  document.getElementById('dashName').textContent        = `${user.firstName} ${user.lastName}`;
+  document.getElementById('dashEmail').textContent       = user.email;
+  document.getElementById('dashPhone').textContent       = user.phone;
+  document.getElementById('dashAvatar').textContent      = (user.firstName[0] + user.lastName[0]).toUpperCase();
+  document.getElementById('notifPhonePreview').textContent = user.phone;
 }
 
 /* ─────────────────────────────────────
@@ -131,7 +131,8 @@ function handlePhoneUpdate(e) {
   }
 
   user.phone = val;
-  document.getElementById('dashPhone').textContent = val;
+  document.getElementById('dashPhone').textContent        = val;
+  document.getElementById('notifPhonePreview').textContent = val;
   document.getElementById('newPhone').value = '';
   showInlineMsg(msg, 'Phone number updated successfully!', 'success');
 }
@@ -335,6 +336,46 @@ function initTicker() {
     '🔴 Major congestion on City Road — 15 min delay  ·  ',
   ];
   document.getElementById('dashTickerText').textContent = msgs.join('');
+}
+
+/* ─────────────────────────────────────
+   TEST NOTIFICATION
+   ───────────────────────────────────── */
+async function handleTestNotification() {
+  const btn = document.getElementById('notifTestBtn');
+  const msg = document.getElementById('notifMsg');
+
+  btn.disabled = true;
+  btn.innerHTML = `
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="animation:spin .7s linear infinite">
+      <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
+    </svg>
+    Sending…
+  `;
+  msg.className = 'inline-msg hidden';
+
+  try {
+    // Hardcoded success — replace with real API call when backend is ready:
+    // await fetch('http://localhost:8000/api/notifications/test', { method: 'POST', ... })
+    await new Promise(r => setTimeout(r, 1200));
+
+    showInlineMsg(
+      msg,
+      `✓ Test alert sent! Please check your SMS on ${user.phone} for the alert message.`,
+      'success'
+    );
+  } catch {
+    showInlineMsg(msg, 'Failed to send test alert — please try again.', 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = `
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <line x1="22" y1="2" x2="11" y2="13"/>
+        <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+      </svg>
+      Send Test Alert
+    `;
+  }
 }
 
 /* ─────────────────────────────────────
