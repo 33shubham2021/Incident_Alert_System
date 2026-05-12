@@ -246,18 +246,18 @@ async function handleLogin(e) {
   clearMsg();
   setLoading('loginBtn', true);
 
-  const email    = document.getElementById('loginEmail').value.trim();
+  const mobile   = document.getElementById('loginMobile').value.trim();
   const password = document.getElementById('loginPassword').value;
   const format   = getRequestFormat();
 
   let body, headers = {};
 
   if (format === 'json') {
-    body = JSON.stringify({ email, password });
+    body = JSON.stringify({ mobile, password });
     headers['Content-Type'] = 'application/json';
   } else {
     const fd = new FormData();
-    fd.append('username', email);
+    fd.append('username', mobile);
     fd.append('password', password);
     body = fd;
   }
@@ -279,11 +279,11 @@ async function handleLogin(e) {
       if (token) {
         sessionStorage.setItem('jwt', token);
         showMsg('Signed in successfully!', 'success');
-        showUserBadge(email);
+        showUserBadge(mobile);
         renderTokenBox(token);
         if (document.getElementById('rememberMe').checked) {
           localStorage.setItem('jwt', token);
-          localStorage.setItem('userEmail', email);
+          localStorage.setItem('userMobile', mobile);
         }
       } else {
         showMsg(`Login succeeded but token field "${getTokenField()}" not found in response.`);
@@ -455,30 +455,30 @@ function escapeHtml(s) {
    User badge / logout
    ════════════════════════════════════ */
 
-function showUserBadge(email) {
+function showUserBadge(mobile) {
   document.getElementById('userBadge').classList.remove('hidden');
-  document.getElementById('userEmailLabel').textContent = email;
-  document.getElementById('avatarInitial').textContent = email.charAt(0).toUpperCase();
+  document.getElementById('userEmailLabel').textContent = mobile;
+  document.getElementById('avatarInitial').textContent = mobile.charAt(0).toUpperCase();
 }
 
 function logout() {
   sessionStorage.removeItem('jwt');
   localStorage.removeItem('jwt');
-  localStorage.removeItem('userEmail');
+  localStorage.removeItem('userMobile');
   document.getElementById('userBadge').classList.add('hidden');
   hideTokenBox();
   clearMsg();
-  document.getElementById('loginEmail').value = '';
+  document.getElementById('loginMobile').value = '';
   document.getElementById('loginPassword').value = '';
   switchTab('login');
 }
 
 /* ── Restore session on load ── */
 (function restoreSession() {
-  const token = sessionStorage.getItem('jwt') || localStorage.getItem('jwt');
-  const email = localStorage.getItem('userEmail');
-  if (token && email) {
-    showUserBadge(email);
+  const token  = sessionStorage.getItem('jwt') || localStorage.getItem('jwt');
+  const mobile = localStorage.getItem('userMobile');
+  if (token && mobile) {
+    showUserBadge(mobile);
     renderTokenBox(token);
     showMsg('Session restored — still signed in.', 'success');
   }
@@ -488,23 +488,36 @@ function logout() {
    Password strength meter
    ════════════════════════════════════ */
 
-document.getElementById('regPassword').addEventListener('input', function () {
-  const val = this.value;
+function calcPwStrength(val, fillId, labelId) {
   let score = 0;
   if (val.length >= 8)            score++;
   if (/[A-Z]/.test(val))          score++;
   if (/[0-9]/.test(val))          score++;
   if (/[^A-Za-z0-9]/.test(val))   score++;
 
-  const fill   = document.getElementById('pwStrengthFill');
-  const label  = document.getElementById('pwStrengthLabel');
+  const fill   = document.getElementById(fillId);
+  const label  = document.getElementById(labelId);
   const colors = ['', '#ef4444', '#f97316', '#f59e0b', '#22c55e'];
   const labels = ['', 'Weak', 'Fair', 'Good', 'Strong'];
 
-  fill.style.width     = `${score * 25}%`;
+  fill.style.width      = `${score * 25}%`;
   fill.style.background = colors[score] || '';
-  label.textContent    = labels[score] || '';
-  label.style.color    = colors[score] || '';
+  label.textContent     = labels[score] || '';
+  label.style.color     = colors[score] || '';
+}
+
+document.getElementById('regPassword').addEventListener('input', function () {
+  calcPwStrength(this.value, 'pwStrengthFill', 'pwStrengthLabel');
+});
+
+document.getElementById('regModalPassword').addEventListener('input', function () {
+  calcPwStrength(this.value, 'regModalPwStrengthFill', 'regModalPwStrengthLabel');
+});
+
+document.getElementById('regModalConfirm').addEventListener('input', function () {
+  const mismatch = document.getElementById('regModalMismatchLabel');
+  const match = this.value === document.getElementById('regModalPassword').value;
+  mismatch.classList.toggle('hidden', match || this.value === '');
 });
 
 /* ════════════════════════════════════
@@ -555,6 +568,17 @@ function handleRegModalBackdrop(e) {
 function handleRegisterModal(e) {
   e.preventDefault();
 
+  const password = document.getElementById('regModalPassword').value;
+  const confirm  = document.getElementById('regModalConfirm').value;
+  const mismatch = document.getElementById('regModalMismatchLabel');
+
+  if (password !== confirm) {
+    mismatch.classList.remove('hidden');
+    document.getElementById('regModalConfirm').focus();
+    return;
+  }
+  mismatch.classList.add('hidden');
+
   const btn = document.getElementById('regModalBtn');
   btn.querySelector('.btn-text').classList.add('hidden');
   btn.querySelector('.btn-spinner').classList.remove('hidden');
@@ -568,6 +592,8 @@ function handleRegisterModal(e) {
 
     document.getElementById('registerModal').classList.add('hidden');
     document.getElementById('regModalForm').reset();
+    document.getElementById('regModalPwStrengthFill').style.width = '';
+    document.getElementById('regModalPwStrengthLabel').textContent = '';
     document.getElementById('regSuccessModal').classList.remove('hidden');
   }, 800);
 }

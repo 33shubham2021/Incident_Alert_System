@@ -147,12 +147,12 @@
         <form id="loginForm" class="auth-form" onsubmit="handleLogin(event)">
 
           <div class="field-group">
-            <label class="field-label">Email address</label>
+            <label class="field-label">Mobile number</label>
             <div class="input-wrap">
               <svg class="input-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/>
+                <rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/>
               </svg>
-              <input type="email" id="loginEmail" class="field-input" placeholder="you@example.com" required />
+              <input type="tel" id="loginMobile" class="field-input" placeholder="+91 98765 43210" required />
             </div>
           </div>
 
@@ -394,6 +394,37 @@
             </select>
             <input type="tel" id="regModalPhone" class="field-input reg-phone-input" placeholder="7700 900 123" required autocomplete="tel-national" />
           </div>
+        </div>
+
+        <div class="field-group">
+          <label class="field-label">Password</label>
+          <div class="input-wrap">
+            <svg class="input-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+            </svg>
+            <input type="password" id="regModalPassword" class="field-input" placeholder="Min. 8 characters" required autocomplete="new-password" />
+            <button type="button" class="toggle-pw" onclick="togglePassword('regModalPassword', this)">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+            </button>
+          </div>
+          <div class="pw-strength-bar" id="regModalPwStrengthBar">
+            <div class="pw-strength-fill" id="regModalPwStrengthFill"></div>
+          </div>
+          <span class="pw-strength-label" id="regModalPwStrengthLabel"></span>
+        </div>
+
+        <div class="field-group">
+          <label class="field-label">Confirm Password</label>
+          <div class="input-wrap">
+            <svg class="input-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+            </svg>
+            <input type="password" id="regModalConfirm" class="field-input" placeholder="Repeat password" required autocomplete="new-password" />
+            <button type="button" class="toggle-pw" onclick="togglePassword('regModalConfirm', this)">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+            </button>
+          </div>
+          <span class="pw-mismatch-label hidden" id="regModalMismatchLabel" style="color:#ef4444;font-size:.75rem;margin-top:.25rem;display:block">Passwords do not match</span>
         </div>
 
         <button type="submit" class="btn-primary" id="regModalBtn" style="margin-top:.4rem">
