@@ -447,7 +447,6 @@ html, body {
 
 /* ── Auth form ── */
 .auth-form { display: flex; flex-direction: column; gap: .85rem; }
-.auth-form.hidden { display: none; }
 
 .field-group { display: flex; flex-direction: column; gap: .35rem; }
 .field-label {
@@ -486,9 +485,6 @@ html, body {
 .field-input.error { border-color: var(--red); box-shadow: 0 0 0 3px rgba(239,68,68,.1); }
 .field-input.success { border-color: var(--green); }
 
-/* input without leading icon (register name fields) */
-.input-wrap:not(:has(.input-icon)) .field-input { padding-left: 12px; }
-
 .toggle-pw {
   position: absolute;
   right: 10px;
@@ -509,7 +505,6 @@ html, body {
   justify-content: space-between;
   gap: .5rem;
 }
-.field-row-dual { display: grid; grid-template-columns: 1fr 1fr; gap: .7rem; }
 
 .checkbox-label {
   display: flex;
@@ -608,64 +603,6 @@ html, body {
 .auth-msg.success { background: #f0fdf4; color: #166534; border: 1px solid #bbf7d0; }
 .auth-msg.error   { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; }
 
-/* ── JWT Token box ── */
-.token-box {
-  margin-top: 1rem;
-  border: 1.5px solid var(--border);
-  border-radius: var(--radius);
-  overflow: hidden;
-}
-.token-header {
-  display: flex;
-  align-items: center;
-  gap: .5rem;
-  padding: 9px 13px;
-  background: var(--surface-2);
-  border-bottom: 1px solid var(--border);
-  font-size: .75rem;
-  font-weight: 600;
-  color: var(--text-2);
-}
-.token-header svg { color: var(--accent); }
-.copy-btn {
-  margin-left: auto;
-  padding: 3px 10px;
-  background: var(--accent-light);
-  border: 1px solid var(--accent);
-  border-radius: 4px;
-  font-size: .68rem;
-  font-weight: 600;
-  color: var(--accent);
-  cursor: pointer;
-  transition: var(--transition);
-}
-.copy-btn:hover { background: var(--accent); color: white; }
-
-.token-parts {
-  padding: 10px 13px;
-  font-size: .7rem;
-  font-family: 'Courier New', monospace;
-  word-break: break-all;
-  line-height: 1.7;
-  background: #fafbff;
-  border-bottom: 1px solid var(--border-soft);
-}
-.token-part-header  { color: var(--red); }
-.token-part-payload { color: var(--accent); }
-.token-part-sig     { color: var(--green); }
-
-.token-decoded {
-  padding: 10px 13px;
-  background: var(--surface);
-}
-.token-decoded pre {
-  font-size: .7rem;
-  font-family: 'Courier New', monospace;
-  color: var(--text-2);
-  white-space: pre-wrap;
-  word-break: break-all;
-}
-
 /* ── API Config block ── */
 .api-config {
   background: var(--surface);
@@ -698,26 +635,7 @@ html, body {
   flex-direction: column;
   gap: .7rem;
 }
-.api-config-body.hidden { display: none; }
 .api-config-body .field-input { padding-left: 12px; }
-
-.radio-group {
-  display: flex;
-  gap: 1rem;
-  font-size: .8rem;
-  color: var(--text-2);
-  margin-top: .25rem;
-}
-.radio-group label {
-  display: flex;
-  align-items: center;
-  gap: .4rem;
-  cursor: pointer;
-}
-.radio-group input { accent-color: var(--accent); }
-
-/* ── Utility ── */
-.hidden { display: none !important; }
 
 /* ── Popup custom ── */
 .leaflet-popup-content-wrapper {
@@ -765,7 +683,6 @@ html, body {
   padding: 1.25rem;
   animation: modalFadeIn .22s ease;
 }
-.reg-modal-overlay.hidden { display: none !important; }
 
 @keyframes modalFadeIn {
   from { opacity: 0; }
@@ -782,6 +699,8 @@ html, body {
   box-shadow: var(--shadow-lg);
   position: relative;
   animation: modalSlideUp .26s cubic-bezier(.4,0,.2,1);
+  max-height: 90vh;
+  overflow-y: auto;
 }
 
 @keyframes modalSlideUp {

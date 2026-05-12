@@ -1,18 +1,16 @@
 /* ═══════════════════════════════════════════════
    AlertMap Dashboard — Specific Styles
-   Loads after styles.css; overrides where needed
    ═══════════════════════════════════════════════ */
-
-/* ── Fix scroll: styles.css locks overflow on html+body ── */
-html, body {
-  height: auto;
-  overflow: auto;
-}
 
 body.dashboard-body {
   min-height: 100vh;
-  overflow-y: auto;
-  background: var(--bg);
+  overflow-y: auto !important;
+  height: auto !important;
+}
+
+html.dashboard-html {
+  height: auto !important;
+  overflow: auto !important;
 }
 
 /* ════════════════════════════════════
@@ -70,7 +68,6 @@ body.dashboard-body {
   flex-wrap: wrap;
 }
 
-/* Gradient accent stripe at top */
 .welcome-card-accent {
   position: absolute;
   top: 0; left: 0; right: 0;
@@ -79,7 +76,6 @@ body.dashboard-body {
   border-radius: var(--radius-xl) var(--radius-xl) 0 0;
 }
 
-/* Subtle background decoration */
 .welcome-card::after {
   content: '';
   position: absolute;
@@ -91,7 +87,6 @@ body.dashboard-body {
   pointer-events: none;
 }
 
-/* ── Avatar section ── */
 .wc-left {
   display: flex;
   align-items: center;
@@ -165,7 +160,6 @@ body.dashboard-body {
   animation: pulse 2s ease infinite;
 }
 
-/* ── Vertical divider ── */
 .wc-divider {
   width: 1px;
   height: 64px;
@@ -174,7 +168,6 @@ body.dashboard-body {
   align-self: center;
 }
 
-/* ── User details ── */
 .wc-details {
   display: flex;
   flex-direction: column;
@@ -194,7 +187,6 @@ body.dashboard-body {
 
 .detail-row svg { color: var(--text-3); flex-shrink: 0; }
 
-/* ── Mini stats ── */
 .wc-stats {
   display: flex;
   align-items: center;
@@ -415,6 +407,7 @@ body.dashboard-body {
 }
 .btn-action:hover { opacity: .9; transform: translateY(-1px); }
 .btn-action:active { transform: translateY(0); }
+.btn-action:disabled { opacity: .65; cursor: not-allowed; transform: none !important; }
 
 /* ── Inline messages ── */
 .inline-msg {
@@ -469,7 +462,6 @@ body.dashboard-body {
 }
 .place-search-input::placeholder { color: var(--text-3); }
 
-/* Dropdown */
 .place-dropdown {
   position: absolute;
   top: calc(100% + 6px);
@@ -485,7 +477,6 @@ body.dashboard-body {
   max-height: 260px;
   overflow-y: auto;
 }
-.place-dropdown.hidden { display: none; }
 
 .place-dropdown li {
   padding: 10px 14px;
@@ -547,7 +538,6 @@ body.dashboard-body {
   align-items: center;
   gap: .5rem;
 }
-.notif-test-btn:disabled { opacity: .65; cursor: not-allowed; transform: none !important; }
 
 /* ════════════════════════════════════
    LIVE MAP SECTION

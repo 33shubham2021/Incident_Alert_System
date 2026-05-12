@@ -1,0 +1,19 @@
+# Dependencies
+node_modules/
+
+# Vite build output
+frontend/dist/
+frontend/.vite/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
