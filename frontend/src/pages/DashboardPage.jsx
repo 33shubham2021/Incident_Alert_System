@@ -1,25 +1,12 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { decodeJwt } from '../services/api';
+import { decodeJwt, fetchUser, fetchSubscriptions, addSubscription, deleteSubscription, triggerDummyTest } from '../services/api';
+import { ALERTS_API } from '../config';
 import DashMap from '../components/DashMap';
 
-const TICKER_MSGS = [
-  '🔴 Heavy Traffic on A40 Westbound — 40 min delay  ·  ',
-  '🟠 Accident cleared on Clapham High St  ·  ',
-  '🟡 Road Closure: Waterloo Bridge until 18:00 — use alternative routes  ·  ',
-  '🔵 Heavy Rain Warning in effect — reduce speed on A10 North  ·  ',
-  '🟠 Construction work on Vauxhall Bridge — expect delays  ·  ',
-  '🔴 Major congestion on City Road — 15 min delay  ·  ',
-];
-
-const INITIAL_PLACES = [
-  { id: 1, name: 'London',   country: 'United Kingdom', emoji: '🇬🇧', bg: '#eef1ff', alerts: 4 },
-  { id: 2, name: 'New York', country: 'United States',  emoji: '🇺🇸', bg: '#fff1f0', alerts: 7 },
-  { id: 3, name: 'Tokyo',    country: 'Japan',          emoji: '🇯🇵', bg: '#fff7ed', alerts: 2 },
-  { id: 4, name: 'Paris',    country: 'France',         emoji: '🇫🇷', bg: '#f0f9ff', alerts: 3 },
-  { id: 5, name: 'Sydney',   country: 'Australia',      emoji: '🇦🇺', bg: '#f0fdf4', alerts: 1 },
-];
+const ALERT_EMOJIS = { TRAFFIC: '🔴', CLIMATE: '🔵', CLOSURE: '🟡', ACCIDENT: '🟠' };
+const TICKER_FALLBACK = '🔴 Loading live alerts…  ·  ';
 
 function getFlagEmoji(code) {
   if (!code || code.length !== 2) return '📍';
@@ -32,6 +19,11 @@ function getGreeting() {
   return h < 12 ? 'Good morning,' : h < 17 ? 'Good afternoon,' : 'Good evening,';
 }
 
+function formatMemberSince(dateStr) {
+  if (!dateStr) return 'N/A';
+  return new Date(dateStr).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
+}
+
 function InlineMsg({ msg }) {
   if (!msg.text) return null;
   return <div className={`inline-msg ${msg.type}`}>{msg.text}</div>;
@@ -41,7 +33,7 @@ export default function DashboardPage() {
   const navigate = useNavigate();
   const { token, logout } = useAuth();
 
-  // Enable scrolling on dashboard, restore on leave
+  // Enable scrolling on dashboard
   useEffect(() => {
     document.documentElement.style.height   = 'auto';
     document.documentElement.style.overflow = 'auto';
@@ -57,60 +49,160 @@ export default function DashboardPage() {
     };
   }, []);
 
-  // Decode JWT for user info
+  // Decode JWT for identity
   const decoded = token ? decodeJwt(token) : null;
-  const payload = decoded?.payload || {};
-  const rawName = payload.name || payload.sub || 'User';
-  const nameParts = rawName.split(' ');
-  const firstName = nameParts[0] || 'User';
-  const lastName  = nameParts.slice(1).join(' ') || '';
-  const userEmail = payload.email || payload.sub || '—';
-  const userPhone = payload.mobile_number || payload.phone || '+44 7700 900123';
-  const avatarInitials = (firstName[0] + (lastName[0] || '')).toUpperCase();
+  const jwtPayload = decoded?.payload || {};
+  const mobileNumber = jwtPayload.mobileNumber || '';
+  console.log(`[Dashboard] Loaded. mobileNumber from JWT: ${mobileNumber}`);
 
-  // Subscribed places
-  const [places,   setPlaces]   = useState(INITIAL_PLACES);
-  const [phone,    setPhone]    = useState(userPhone);
-  const [newPhone, setNewPhone] = useState('');
-  const [phoneMsg, setPhoneMsg] = useState({ text: '', type: '' });
+  // User info state (hydrated from API)
+  const [userInfo, setUserInfo] = useState({
+    name: jwtPayload.name || 'User',
+    email: jwtPayload.email || '—',
+    mobileNumber: mobileNumber || '—',
+    createdAt: null,
+  });
 
-  // Place search
-  const [placeSearch,  setPlaceSearch]  = useState('');
-  const [suggestions,  setSuggestions]  = useState([]);
+  // Subscriptions state
+  const [subscriptions, setSubscriptions] = useState([]);
+  const [subsLoading, setSubsLoading]     = useState(true);
+  const [placeNames,   setPlaceNames]     = useState({});
+
+  // Live ticker state
+  const [tickerText,   setTickerText]     = useState('');
+
+  // Place search state
+  const [placeSearch,   setPlaceSearch]   = useState('');
+  const [suggestions,   setSuggestions]   = useState([]);
   const [selectedPlace, setSelectedPlace] = useState(null);
-  const [showDropdown, setShowDropdown] = useState(false);
-  const [subscribeMsg, setSubscribeMsg] = useState({ text: '', type: '' });
+  const [showDropdown,  setShowDropdown]  = useState(false);
+  const [subscribeMsg,  setSubscribeMsg]  = useState({ text: '', type: '' });
   const searchTimeout = useRef(null);
 
-  // Test notification
+  // Test notification state
   const [notifLoading, setNotifLoading] = useState(false);
   const [notifMsg,     setNotifMsg]     = useState({ text: '', type: '' });
+
+  // Popup state for when user has no subscriptions on dummy-test
+  const [showNoSubsPopup, setShowNoSubsPopup] = useState(false);
 
   function showTimed(setter, msg, ms = 3500) {
     setter(msg);
     setTimeout(() => setter({ text: '', type: '' }), ms);
   }
 
+  // Reverse-geocode subscription coordinates → human-readable place names (sequential to respect Nominatim rate limit)
+  const reverseGeocodeAll = useCallback(async (subs) => {
+    if (!subs.length) return;
+    const results = {};
+    for (let i = 0; i < subs.length; i++) {
+      const sub = subs[i];
+      const key = `${sub.latitude}_${sub.longitude}`;
+      try {
+        const res = await fetch(
+          `https://nominatim.openstreetmap.org/reverse?format=json&lat=${sub.latitude}&lon=${sub.longitude}`,
+          { headers: { 'Accept-Language': 'en' } }
+        );
+        const json = await res.json();
+        const addr = json.address || {};
+        results[key] = addr.city || addr.town || addr.village || addr.county || addr.state
+          || (json.display_name || '').split(',')[0].trim()
+          || `${sub.latitude.toFixed(4)}, ${sub.longitude.toFixed(4)}`;
+      } catch {
+        results[key] = `${sub.latitude.toFixed(4)}, ${sub.longitude.toFixed(4)}`;
+      }
+      if (i < subs.length - 1) await new Promise((r) => setTimeout(r, 350));
+    }
+    setPlaceNames((prev) => ({ ...prev, ...results }));
+    console.log(`[Dashboard] Reverse-geocoded ${subs.length} subscription(s)`);
+  }, []);
+
+  // Fetch recent alerts and build live ticker text
+  const loadTickerAlerts = useCallback(async () => {
+    try {
+      const url = `${ALERTS_API.baseUrl}${ALERTS_API.alertsPath}?minutes=${ALERTS_API.windowMinutes}`;
+      const res = await fetch(url);
+      const json = await res.json();
+      if (json.alerts && json.alerts.length > 0) {
+        const text = json.alerts
+          .map((a) => `${ALERT_EMOJIS[a.alert_type] || '📍'} [${a.alert_type}] ${a.description}  ·  `)
+          .join('');
+        setTickerText(text);
+        console.log(`[Dashboard] Ticker loaded ${json.alerts.length} alert(s) from last ${ALERTS_API.windowMinutes}min`);
+      }
+    } catch (err) {
+      console.warn('[Dashboard] loadTickerAlerts failed:', err.message);
+    }
+  }, []);
+
   function handleLogout() {
+    console.log('[Dashboard] User logging out');
     logout();
     navigate('/', { replace: true });
   }
 
-  function handlePhoneUpdate(e) {
-    e.preventDefault();
-    if (!newPhone.trim()) {
-      showTimed(setPhoneMsg, { text: 'Please enter a phone number.', type: 'error' });
+  // Fetch user info from API server
+  const loadUser = useCallback(async () => {
+    if (!mobileNumber) return;
+    console.log(`[Dashboard] Fetching user info for mobile=${mobileNumber}`);
+    try {
+      const { ok, data } = await fetchUser(mobileNumber);
+      if (ok && data.user) {
+        setUserInfo({
+          name: data.user.name,
+          email: data.user.email,
+          mobileNumber: data.user.mobile_number,
+          createdAt: data.user.created_at,
+        });
+        console.log(`[Dashboard] User info loaded: name="${data.user.name}" email="${data.user.email}"`);
+      } else {
+        console.warn('[Dashboard] fetchUser failed:', data.message);
+      }
+    } catch (err) {
+      console.error('[Dashboard] fetchUser error:', err.message);
+    }
+  }, [mobileNumber]);
+
+  // Fetch subscriptions from API server
+  const loadSubscriptions = useCallback(async () => {
+    if (!mobileNumber) {
+      setSubsLoading(false);
       return;
     }
-    setPhone(newPhone.trim());
-    setNewPhone('');
-    showTimed(setPhoneMsg, { text: 'Phone number updated successfully!', type: 'success' });
-  }
+    console.log(`[Dashboard] Fetching subscriptions for mobile=${mobileNumber}`);
+    setSubsLoading(true);
+    try {
+      const { ok, data } = await fetchSubscriptions(mobileNumber);
+      if (ok) {
+        const subs = data.subscriptions || [];
+        setSubscriptions(subs);
+        reverseGeocodeAll(subs);
+        console.log(`[Dashboard] Loaded ${data.count} subscription(s)`);
+      } else {
+        console.warn('[Dashboard] fetchSubscriptions failed:', data.message);
+        setSubscriptions([]);
+      }
+    } catch (err) {
+      console.error('[Dashboard] fetchSubscriptions error:', err.message);
+      setSubscriptions([]);
+    } finally {
+      setSubsLoading(false);
+    }
+  }, [mobileNumber, reverseGeocodeAll]);
 
-  function removePlace(id) {
-    setPlaces((prev) => prev.filter((p) => p.id !== id));
-  }
+  useEffect(() => {
+    loadUser();
+    loadSubscriptions();
+  }, [loadUser, loadSubscriptions]);
 
+  // Poll live ticker alerts on mount and every 60s
+  useEffect(() => {
+    loadTickerAlerts();
+    const id = setInterval(loadTickerAlerts, ALERTS_API.pollIntervalMs);
+    return () => clearInterval(id);
+  }, [loadTickerAlerts]);
+
+  // Place search via Nominatim
   function handlePlaceInput(val) {
     setPlaceSearch(val);
     setSelectedPlace(null);
@@ -142,8 +234,14 @@ export default function DashboardPage() {
         const country = addr.country || '';
         const code    = (addr.country_code || '').toUpperCase();
         const flag    = getFlagEmoji(code);
-        return { name: city, country, emoji: flag, bg: '#f1f4f9', alerts: 0,
-          lat: +item.lat, lng: +item.lon, label: `${flag} ${city}${country ? ', ' + country : ''}` };
+        return {
+          name: city,
+          country,
+          emoji: flag,
+          lat: parseFloat(item.lat),
+          lng: parseFloat(item.lon),
+          label: `${flag} ${city}${country ? ', ' + country : ''}`,
+        };
       });
       setSuggestions(items);
     } catch {
@@ -152,49 +250,95 @@ export default function DashboardPage() {
   }
 
   function selectSuggestion(place) {
+    console.log(`[Dashboard] Selected place: "${place.name}" lat=${place.lat} lon=${place.lng}`);
     setSelectedPlace(place);
     setPlaceSearch(place.label);
     setShowDropdown(false);
   }
 
-  function handleSubscribe() {
-    const query = placeSearch.trim();
-    if (!query) {
-      showTimed(setSubscribeMsg, { text: 'Please search and select a place first.', type: 'error' });
+  async function handleSubscribe() {
+    if (!selectedPlace) {
+      showTimed(setSubscribeMsg, { text: 'Please search and select a place from the list first.', type: 'error' });
       return;
     }
-    const name = selectedPlace ? selectedPlace.name : query.split(',')[0].trim();
-    if (places.some((p) => p.name.toLowerCase() === name.toLowerCase())) {
-      showTimed(setSubscribeMsg, { text: `Already subscribed to ${name}.`, type: 'error' });
+
+    if (!mobileNumber) {
+      showTimed(setSubscribeMsg, { text: 'Unable to identify your account. Please log in again.', type: 'error' });
       return;
     }
-    setPlaces((prev) => [
-      ...prev,
-      { id: Date.now(), name, country: selectedPlace?.country || '', emoji: selectedPlace?.emoji || '📍', bg: '#f1f4f9', alerts: 0 },
-    ]);
-    setPlaceSearch('');
-    setSelectedPlace(null);
-    showTimed(setSubscribeMsg, { text: `Subscribed to ${name}!`, type: 'success' });
+
+    console.log(`[Dashboard] Subscribing to "${selectedPlace.name}" lat=${selectedPlace.lat} lon=${selectedPlace.lng}`);
+
+    try {
+      const { ok, data } = await addSubscription(mobileNumber, selectedPlace.lat, selectedPlace.lng, 50);
+      if (ok) {
+        showTimed(setSubscribeMsg, { text: `Subscribed to ${selectedPlace.name}!`, type: 'success' });
+        setPlaceSearch('');
+        setSelectedPlace(null);
+        setSuggestions([]);
+        await loadSubscriptions();
+      } else {
+        showTimed(setSubscribeMsg, { text: data.message || 'Failed to subscribe.', type: 'error' });
+      }
+    } catch (err) {
+      console.error('[Dashboard] addSubscription error:', err.message);
+      showTimed(setSubscribeMsg, { text: 'Network error. Please try again.', type: 'error' });
+    }
+  }
+
+  async function handleRemoveSubscription(sub) {
+    console.log(`[Dashboard] Removing subscription id=${sub.id} lat=${sub.latitude} lon=${sub.longitude}`);
+    try {
+      const { ok, data } = await deleteSubscription(mobileNumber, sub.latitude, sub.longitude);
+      if (ok) {
+        await loadSubscriptions();
+      } else {
+        console.warn('[Dashboard] deleteSubscription failed:', data.message);
+      }
+    } catch (err) {
+      console.error('[Dashboard] deleteSubscription error:', err.message);
+    }
   }
 
   async function handleTestNotification() {
+    if (subscriptions.length === 0) {
+      console.log('[Dashboard] No subscriptions — showing popup');
+      setShowNoSubsPopup(true);
+      return;
+    }
+
+    // Pick the first subscribed location to trigger the dummy alert
+    const target = subscriptions[0];
+    console.log(`[Dashboard] Triggering dummy test at lat=${target.latitude} lon=${target.longitude} (subscription id=${target.id})`);
+
     setNotifLoading(true);
     setNotifMsg({ text: '', type: '' });
     try {
-      await new Promise((r) => setTimeout(r, 1200)); // replace with real API call
-      showTimed(
-        setNotifMsg,
-        { text: `✓ Test alert sent! Please check your SMS on ${phone} for the alert message.`, type: 'success' },
-        4000
-      );
-    } catch {
-      showTimed(setNotifMsg, { text: 'Failed to send test alert — please try again.', type: 'error' });
+      const { ok, data } = await triggerDummyTest(target.latitude, target.longitude);
+      if (ok) {
+        const { alertType, description } = data.alert;
+        const smsMsg = `[AlertMap] ${alertType} ALERT: ${description} (near your subscribed location)`;
+        showTimed(
+          setNotifMsg,
+          { text: `Message delivered to mobile number: ${userInfo.mobileNumber} with message: "${smsMsg}"`, type: 'success' },
+          7000
+        );
+      } else {
+        showTimed(setNotifMsg, { text: data.message || 'Failed to trigger test alert.', type: 'error' });
+      }
+    } catch (err) {
+      console.error('[Dashboard] triggerDummyTest error:', err.message);
+      showTimed(setNotifMsg, { text: 'Network error. Please try again.', type: 'error' });
     } finally {
       setNotifLoading(false);
     }
   }
 
-  const placeCount = places.length;
+  const nameParts   = userInfo.name.split(' ');
+  const firstName   = nameParts[0] || 'User';
+  const lastName    = nameParts.slice(1).join(' ') || '';
+  const avatarInitials = (firstName[0] + (lastName[0] || '')).toUpperCase();
+  const placeCount  = subscriptions.length;
 
   return (
     <>
@@ -232,7 +376,7 @@ export default function DashboardPage() {
       {/* ── Dashboard content ── */}
       <main className="dash-main">
 
-        {/* Welcome card */}
+        {/* Welcome / User card */}
         <div className="welcome-card">
           <div className="welcome-card-accent" />
           <div className="wc-left">
@@ -255,20 +399,20 @@ export default function DashboardPage() {
                 <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
                 <polyline points="22,6 12,13 2,6" />
               </svg>
-              <span>{userEmail}</span>
+              <span>{userInfo.email}</span>
             </div>
             <div className="detail-row">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.61 3.18 2 2 0 0 1 3.6 1h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 8.54a16 16 0 0 0 6 6l.91-.91a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 21.5 16z" />
               </svg>
-              <span>{phone}</span>
+              <span>{userInfo.mobileNumber}</span>
             </div>
             <div className="detail-row">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
                 <line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" />
               </svg>
-              <span>Member since January 2024</span>
+              <span>Member since {formatMemberSince(userInfo.createdAt)}</span>
             </div>
           </div>
 
@@ -281,13 +425,13 @@ export default function DashboardPage() {
             </div>
             <div className="wcs-sep" />
             <div className="wc-stat">
-              <span className="wcs-value" style={{ color: 'var(--red)' }}>12</span>
+              <span className="wcs-value" style={{ color: 'var(--red)' }}>—</span>
               <span className="wcs-label">Alerts</span>
             </div>
             <div className="wcs-sep" />
             <div className="wc-stat">
-              <span className="wcs-value" style={{ color: 'var(--green)' }}>98%</span>
-              <span className="wcs-label">Uptime</span>
+              <span className="wcs-value" style={{ color: 'var(--green)' }}>Active</span>
+              <span className="wcs-label">Status</span>
             </div>
           </div>
         </div>
@@ -306,31 +450,40 @@ export default function DashboardPage() {
             <span className="section-badge">{placeCount} place{placeCount !== 1 ? 's' : ''}</span>
           </div>
 
-          <div className="places-grid">
-            {places.map((p) => {
-              const alertClass = p.alerts === 0 ? 'chip-alerts-none' : p.alerts <= 3 ? 'chip-alerts-low' : 'chip-alerts-high';
-              return (
-                <div key={p.id} className="place-chip">
-                  <div className="place-chip-icon" style={{ background: p.bg }}>{p.emoji}</div>
+          {subsLoading ? (
+            <p style={{ color: 'var(--text-muted)', fontSize: '.85rem', padding: '1rem 0' }}>Loading subscriptions…</p>
+          ) : subscriptions.length === 0 ? (
+            <p style={{ color: 'var(--text-muted)', fontSize: '.85rem', padding: '1rem 0' }}>
+              No subscriptions yet. Use the section below to subscribe to places.
+            </p>
+          ) : (
+            <div className="places-grid">
+              {subscriptions.map((sub) => (
+                <div key={sub.id} className="place-chip">
+                  <div className="place-chip-icon" style={{ background: '#f1f4f9' }}>📍</div>
                   <div className="place-chip-info">
-                    <div className="place-chip-name">{p.name}</div>
-                    <div className="place-chip-sub">{p.country}</div>
-                    <div className={`place-chip-alerts ${alertClass}`}>
-                      {p.alerts === 0 ? '✓ No alerts' : `⚠ ${p.alerts} alert${p.alerts !== 1 ? 's' : ''}`}
+                    <div className="place-chip-name">
+                      {placeNames[`${sub.latitude}_${sub.longitude}`] || `${sub.latitude.toFixed(4)}, ${sub.longitude.toFixed(4)}`}
                     </div>
+                    <div className="place-chip-sub">Radius: {sub.distance} km</div>
+                    <div className="place-chip-alerts chip-alerts-none">✓ Subscribed</div>
                   </div>
-                  <button className="place-chip-remove" title={`Unsubscribe from ${p.name}`} onClick={() => removePlace(p.id)}>
+                  <button
+                    className="place-chip-remove"
+                    title="Unsubscribe"
+                    onClick={() => handleRemoveSubscription(sub)}
+                  >
                     <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                       <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
                     </svg>
                   </button>
                 </div>
-              );
-            })}
-          </div>
+              ))}
+            </div>
+          )}
         </section>
 
-        {/* Update Phone */}
+        {/* Update Phone — DISABLED */}
         <section className="dash-section">
           <div className="section-header">
             <div className="section-title-wrap">
@@ -341,21 +494,24 @@ export default function DashboardPage() {
               </div>
               <h3 className="section-title">Update Phone Number</h3>
             </div>
+            <span className="section-badge" style={{ background: '#fef3c7', color: '#92400e', borderColor: 'rgba(146,64,14,.2)' }}>
+              Coming Soon
+            </span>
           </div>
-          <p className="section-desc">Update your contact number to receive SMS alerts for your subscribed places.</p>
-          <form className="phone-form" onSubmit={handlePhoneUpdate}>
-            <div className="phone-input-row">
-              <div className="input-wrap phone-input-wrap">
-                <svg className="input-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.61 3.18 2 2 0 0 1 3.6 1h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 8.54a16 16 0 0 0 6 6l.91-.91a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 21.5 16z" />
-                </svg>
-                <input type="tel" className="field-input phone-field" placeholder="+1 234 567 8900"
-                  value={newPhone} onChange={(e) => setNewPhone(e.target.value)} />
-              </div>
-              <button type="submit" className="btn-action">Save Number</button>
+          <p className="section-desc" style={{ color: 'var(--text-muted)' }}>
+            This feature is currently under development. Your registered number is: <strong>{userInfo.mobileNumber}</strong>
+          </p>
+          <div className="phone-input-row">
+            <div className="input-wrap phone-input-wrap" style={{ opacity: 0.5 }}>
+              <svg className="input-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.61 3.18 2 2 0 0 1 3.6 1h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 8.54a16 16 0 0 0 6 6l.91-.91a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 21.5 16z" />
+              </svg>
+              <input type="tel" className="field-input phone-field" disabled placeholder="Feature under development" />
             </div>
-            <InlineMsg msg={phoneMsg} />
-          </form>
+            <button type="button" className="btn-action" disabled style={{ opacity: 0.5, cursor: 'not-allowed' }}>
+              Change Number
+            </button>
+          </div>
         </section>
 
         {/* Subscribe to More Places */}
@@ -370,7 +526,7 @@ export default function DashboardPage() {
               <h3 className="section-title">Subscribe to More Places</h3>
             </div>
           </div>
-          <p className="section-desc">Search any city, region, or landmark worldwide to receive real-time alerts.</p>
+          <p className="section-desc">Search any city, region, or landmark to receive real-time alerts within 50 km.</p>
 
           <div className="place-search-wrap" style={{ position: 'relative' }}>
             <div className="place-search-box">
@@ -433,14 +589,16 @@ export default function DashboardPage() {
               SMS Alert
             </span>
           </div>
-          <p className="section-desc">Send a test SMS alert to your registered mobile number to verify notifications are working.</p>
+          <p className="section-desc">
+            Triggers a dummy alert at one of your subscribed locations and logs an SMS notification on the server.
+          </p>
 
           <div className="notif-test-row">
             <div className="notif-preview-pill">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <rect x="5" y="2" width="14" height="20" rx="2" ry="2" /><line x1="12" y1="18" x2="12.01" y2="18" />
               </svg>
-              <span>{phone}</span>
+              <span>{userInfo.mobileNumber}</span>
             </div>
             <button className="btn-action notif-test-btn" disabled={notifLoading} onClick={handleTestNotification}>
               {notifLoading ? (
@@ -486,7 +644,10 @@ export default function DashboardPage() {
           <div className="dash-ticker">
             <span className="ticker-label">LIVE</span>
             <div className="ticker-track">
-              <span className="ticker-text">{TICKER_MSGS.join('')}</span>
+              <span className="ticker-text">
+                {tickerText || TICKER_FALLBACK}
+                {tickerText || TICKER_FALLBACK}
+              </span>
             </div>
           </div>
 
@@ -494,6 +655,28 @@ export default function DashboardPage() {
         </section>
 
       </main>
+
+      {/* No-subscriptions popup for dummy test */}
+      {showNoSubsPopup && (
+        <div className="reg-modal-overlay">
+          <div className="reg-success-card" style={{ borderTop: '4px solid #f59e0b' }}>
+            <div className="success-check-circle" style={{ background: 'linear-gradient(135deg,#f59e0b,#f97316)' }}>
+              <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5">
+                <line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
+                <circle cx="12" cy="12" r="10" />
+              </svg>
+            </div>
+            <h3 className="success-title">No Subscriptions Found</h3>
+            <p className="success-desc">
+              You need to subscribe to at least one place before sending a test alert.<br />
+              Use the <strong>"Subscribe to More Places"</strong> section above to get started.
+            </p>
+            <button className="btn-primary" onClick={() => setShowNoSubsPopup(false)} style={{ maxWidth: '200px', margin: '0 auto' }}>
+              OK
+            </button>
+          </div>
+        </div>
+      )}
     </>
   );
 }

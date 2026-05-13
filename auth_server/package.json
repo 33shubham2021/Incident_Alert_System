@@ -4,8 +4,8 @@
   "description": "codebase of security related services for the alert system",
   "main": "server.js",
   "scripts": {
-    "start": "node backend/server.js",
-    "server": "nodemon backend/server.js"
+    "start": "node server.js",
+    "server": "nodemon server.js"
   },
   "author": "Shubham Sharma",
   "license": "MIT",

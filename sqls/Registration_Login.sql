@@ -19,3 +19,15 @@ CREATE TABLE alert (
     description VARCHAR(512),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE subscription (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    mobile_number VARCHAR(20) NOT NULL,
+    latitude DECIMAL(10, 8) NOT NULL,
+    longitude DECIMAL(11, 8) NOT NULL,
+    distance INT NOT NULL DEFAULT 50,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (mobile_number) REFERENCES user(mobile_number) ON DELETE CASCADE,
+    UNIQUE KEY uq_sub (mobile_number, latitude, longitude)
+);
+

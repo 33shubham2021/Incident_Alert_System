@@ -2,9 +2,11 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { loginUser, extractToken } from '../services/api';
-import { API_CONFIG } from '../config';
 import LoginMap from '../components/LoginMap';
 import RegisterModal from '../components/RegisterModal';
+
+// Expected format: +CountryCode-PhoneNumber  e.g. +91-7488230107
+const MOBILE_FORMAT_REGEX = /^\+\d{1,4}-\d{5,15}$/;
 
 function calcPwStrength(val) {
   let score = 0;
@@ -36,32 +38,57 @@ export default function LoginPage() {
   }, []);
 
   // Login form state
-  const [mobile,     setMobile]     = useState('');
-  const [password,   setPassword]   = useState('');
-  const [rememberMe, setRememberMe] = useState(false);
-  const [showPw,     setShowPw]     = useState(false);
-  const [loading,    setLoading]    = useState(false);
-  const [msg,        setMsg]        = useState({ text: '', type: '' });
+  const [mobile,       setMobile]       = useState('');
+  const [mobileError,  setMobileError]  = useState('');
+  const [password,     setPassword]     = useState('');
+  const [rememberMe,   setRememberMe]   = useState(false);
+  const [showPw,       setShowPw]       = useState(false);
+  const [loading,      setLoading]      = useState(false);
+  const [msg,          setMsg]          = useState({ text: '', type: '' });
 
   // Modals
   const [showRegModal,     setShowRegModal]     = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [showDevModal,     setShowDevModal]     = useState(false);
 
-  // Dev API config panel
-  const [apiBaseUrl,    setApiBaseUrl]    = useState(API_CONFIG.baseUrl);
-  const [showApiConfig, setShowApiConfig] = useState(false);
+  function handleMobileChange(val) {
+    setMobile(val);
+    if (!val) {
+      setMobileError('');
+      return;
+    }
+    if (!MOBILE_FORMAT_REGEX.test(val.trim())) {
+      setMobileError('Enter in format: +CountryCode-PhoneNumber  (e.g. +91-7488230107)');
+    } else {
+      setMobileError('');
+    }
+  }
+
+  function handleForgotPassword(e) {
+    e.preventDefault();
+    console.log('[LoginPage] Forgot password clicked — feature under development');
+    setShowDevModal(true);
+  }
 
   async function handleLogin(e) {
     e.preventDefault();
+    // Block submit if format is still wrong
+    if (mobile && !MOBILE_FORMAT_REGEX.test(mobile.trim())) {
+      setMobileError('Enter in format: +CountryCode-PhoneNumber  (e.g. +91-7488230107)');
+      return;
+    }
     setMsg({ text: '', type: '' });
     setLoading(true);
+    console.log(`[LoginPage] Login attempt for mobile=${mobile}`);
     try {
-      const { ok, data } = await loginUser(mobile, password, apiBaseUrl);
+      const { ok, data } = await loginUser(mobile.trim(), password);
+      console.log(`[LoginPage] Login response ok=${ok}`, data);
       if (!ok) {
-        const detail = data.detail || data.message || data.error || `HTTP error`;
+        const detail = data.detail || data.message || data.error || 'HTTP error';
         setMsg({ text: `Login failed: ${detail}`, type: 'error' });
       } else {
         const token = extractToken(data);
+        console.log(`[LoginPage] Token extracted: ${token ? 'YES' : 'NO'}`);
         if (token) {
           auth.login(token, rememberMe);
           navigate('/dashboard', { replace: true });
@@ -72,7 +99,7 @@ export default function LoginPage() {
     } catch (err) {
       setMsg({
         text: err.name === 'TypeError'
-          ? 'Cannot reach API — check Base URL and CORS settings.'
+          ? 'Cannot reach the auth server — ensure it is running on port 5050.'
           : `Unexpected error: ${err.message}`,
         type: 'error',
       });
@@ -153,9 +180,22 @@ export default function LoginPage() {
                   <svg className="input-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <rect x="5" y="2" width="14" height="20" rx="2" ry="2" /><line x1="12" y1="18" x2="12.01" y2="18" />
                   </svg>
-                  <input type="tel" className="field-input" placeholder="+91 98765 43210" required
-                    value={mobile} onChange={(e) => setMobile(e.target.value)} />
+                  <input
+                    type="tel"
+                    className={`field-input${mobileError ? ' error' : ''}`}
+                    placeholder="+91-7488230107"
+                    required
+                    value={mobile}
+                    onChange={(e) => handleMobileChange(e.target.value)}
+                    onBlur={(e) => handleMobileChange(e.target.value)}
+                  />
                 </div>
+                {mobileError
+                  ? <span style={{ color: '#ef4444', fontSize: '.72rem', marginTop: '.25rem', display: 'block' }}>{mobileError}</span>
+                  : <span style={{ color: 'var(--text-muted, #94a3b8)', fontSize: '.72rem', marginTop: '.25rem', display: 'block' }}>
+                      Format: +CountryCode-PhoneNumber &nbsp;(e.g. +91-7488230107)
+                    </span>
+                }
               </div>
 
               <div className="field-group">
@@ -180,7 +220,7 @@ export default function LoginPage() {
                   <input type="checkbox" checked={rememberMe} onChange={(e) => setRememberMe(e.target.checked)} />
                   Remember me
                 </label>
-                <a href="#" className="link-subtle">Forgot password?</a>
+                <a href="#" className="link-subtle" onClick={handleForgotPassword}>Forgot password?</a>
               </div>
 
               <button type="submit" className="btn-primary" disabled={loading}>
@@ -190,29 +230,6 @@ export default function LoginPage() {
 
             {msg.text && <div className={`auth-msg ${msg.type}`}>{msg.text}</div>}
           </div>
-
-          {/* API Config accordion (dev helper) */}
-          <div className="api-config">
-            <div className="api-config-header" onClick={() => setShowApiConfig((v) => !v)}>
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <circle cx="12" cy="12" r="3" />
-                <path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14" />
-              </svg>
-              <span>API Configuration</span>
-              <svg className={`chevron ${showApiConfig ? 'open' : ''}`} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <polyline points="6 9 12 15 18 9" />
-              </svg>
-            </div>
-            {showApiConfig && (
-              <div className="api-config-body">
-                <div className="field-group">
-                  <label className="field-label">Base URL</label>
-                  <input type="text" className="field-input" value={apiBaseUrl}
-                    onChange={(e) => setApiBaseUrl(e.target.value)} />
-                </div>
-              </div>
-            )}
-          </div>
         </aside>
       </main>
 
@@ -221,8 +238,30 @@ export default function LoginPage() {
         open={showRegModal}
         onClose={() => setShowRegModal(false)}
         onSuccess={handleRegSuccess}
-        apiBaseUrl={apiBaseUrl}
       />
+
+      {/* Change Password — under development modal */}
+      {showDevModal && (
+        <div className="reg-modal-overlay">
+          <div className="reg-success-card" style={{ borderTop: '4px solid #f59e0b' }}>
+            <div className="success-check-circle" style={{ background: 'linear-gradient(135deg,#f59e0b,#f97316)' }}>
+              <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5">
+                <circle cx="12" cy="12" r="10" />
+                <line x1="12" y1="8" x2="12" y2="12" />
+                <line x1="12" y1="16" x2="12.01" y2="16" />
+              </svg>
+            </div>
+            <h3 className="success-title">Under Development</h3>
+            <p className="success-desc">
+              The password change / recovery feature is currently under development.<br />
+              Please contact support if you need assistance.
+            </p>
+            <button className="btn-primary" onClick={() => setShowDevModal(false)} style={{ maxWidth: '200px', margin: '0 auto' }}>
+              OK
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Registration success popup */}
       {showSuccessModal && (

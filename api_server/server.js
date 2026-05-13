@@ -3,6 +3,9 @@ const express = require('express');
 const cors = require('cors');
 const alertRoutes = require('./routes/alertRoutes');
 const schedulerService = require('./services/schedulerService');
+const { connectRedis } = require('./config/redisClient');
+const kafkaProducer = require('./kafka/producer');
+const kafkaConsumer = require('./kafka/consumer');
 
 const app = express();
 
@@ -27,11 +30,44 @@ app.use(express.json());
 
 app.use('/api', alertRoutes);
 
-schedulerService.start();
+async function bootstrap() {
+  // Connect Redis
+  try {
+    await connectRedis();
+    console.log('[Server] Redis connection established');
+  } catch (err) {
+    console.error('[Server] Redis connection failed (continuing without Redis):', err.message);
+  }
 
-const PORT = process.env.PORT || 5051;
-app.listen(PORT, () => {
-  console.log(`API server running on port ${PORT}`);
+  // Connect Kafka producer
+  try {
+    await kafkaProducer.connect();
+    console.log('[Server] Kafka producer ready');
+  } catch (err) {
+    console.error('[Server] Kafka producer connection failed (continuing without Kafka producer):', err.message);
+  }
+
+  // Start Kafka consumer
+  try {
+    await kafkaConsumer.start();
+    console.log('[Server] Kafka consumer started');
+  } catch (err) {
+    console.error('[Server] Kafka consumer failed to start (continuing without Kafka consumer):', err.message);
+  }
+
+  // Start scheduler
+  schedulerService.start();
+
+  // Start HTTP server
+  const PORT = process.env.PORT || 5051;
+  app.listen(PORT, () => {
+    console.log(`[Server] API server running on port ${PORT}`);
+  });
+}
+
+bootstrap().catch((err) => {
+  console.error('[Server] Fatal bootstrap error:', err);
+  process.exit(1);
 });
 
 module.exports = app;
