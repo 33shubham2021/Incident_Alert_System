@@ -1,0 +1,14 @@
+# Exclude node_modules from all services (Docker installs them fresh)
+Incident_Alert_System/api_server/node_modules
+Incident_Alert_System/auth_server/node_modules
+Incident_Alert_System/frontend/node_modules
+Incident_Alert_System/frontend/dist
+
+# Never send .env files into the build context
+Incident_Alert_System/**/.env
+Production/**/.env
+
+# Git metadata and OS noise
+**/.git
+**/.DS_Store
+**/Thumbs.db

@@ -1,0 +1,108 @@
+version: '3.9'
+
+# ─────────────────────────────────────────────────────────────────────────────
+# AlertMap – Production Docker Compose
+#
+# Run from the Production/ directory:
+#   docker-compose up -d --build
+#
+# Build context for app services: Incident_Alert_System/  (context: ..)
+# Build context for redis:         Production/redis/       (context: ./redis)
+# ─────────────────────────────────────────────────────────────────────────────
+
+networks:
+  alertmap-net:
+    driver: bridge
+
+services:
+
+  # ── Redis (custom config: AOF persistence + periodic snapshots) ───────────
+  redis:
+    build:
+      context: ./redis
+      dockerfile: Dockerfile
+    container_name: alertmap-redis
+    networks:
+      - alertmap-net
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Kafka (KRaft mode – no Zookeeper) ──────────────────────────────────────
+  kafka:
+    image: apache/kafka:4.1.1
+    container_name: alertmap-kafka
+    networks:
+      - alertmap-net
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    restart: unless-stopped
+
+  # ── Auth Server ────────────────────────────────────────────────────────────
+  auth_server:
+    build:
+      context: ..
+      dockerfile: Production/auth_server/Dockerfile
+    container_name: alertmap-auth
+    networks:
+      - alertmap-net
+    ports:
+      - "127.0.0.1:5050:5050"
+    env_file:
+      - ../auth_server/.env
+    restart: unless-stopped
+
+  # ── API Server ─────────────────────────────────────────────────────────────
+  api_server:
+    build:
+      context: ..
+      dockerfile: Production/api_server/Dockerfile
+    container_name: alertmap-api
+    networks:
+      - alertmap-net
+    ports:
+      - "127.0.0.1:5051:5051"
+    env_file:
+      - ../api_server/.env
+    environment:
+      # Override .env values with Docker network service names
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      KAFKA_BROKER: kafka:9092
+    depends_on:
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+    restart: unless-stopped
+
+  # ── Frontend (Vite build served by nginx) ──────────────────────────────────
+  frontend:
+    build:
+      context: ..
+      dockerfile: Production/frontend/Dockerfile
+    container_name: alertmap-frontend
+    networks:
+      - alertmap-net
+    ports:
+      - "127.0.0.1:8080:80"
+    restart: unless-stopped
+
+volumes:
+  redis_data:
+  kafka_data:

@@ -1,0 +1,18 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# .dockerignore — must live at the BUILD CONTEXT root (Incident_Alert_System/)
+# Applies to all services that use  context: ..  in docker-compose.yml
+# ─────────────────────────────────────────────────────────────────────────────
+
+# node_modules are installed fresh inside each container
+**/node_modules
+
+# Vite build output (frontend builds inside Docker)
+frontend/dist
+
+# Never bake .env files into images — secrets are injected at runtime via env_file
+**/.env
+!**/.env.dummy
+
+# OS noise
+**/.DS_Store
+**/Thumbs.db
