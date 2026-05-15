@@ -1040,60 +1040,253 @@ Eliminating Zookeeper reduces operational complexity on a single-VM deployment w
 
 ## 11. Future Scope
 
-### 11.1 Third-Party Alert API Integration
+### 11.1 Role-Based Authorization
 
-Replace the synthetic scheduler with a production ingestion pipeline:
+Currently the system has a single implicit user role — anyone who registers and logs in is treated identically. This is fine for an MVP but creates blockers for operations that require elevated trust, such as changing a user's mobile number (which is the FK across the subscription table and the SMS delivery identifier).
+
+**Proposed Role Model**
+
+Two roles: `user` (default) and `admin`.
 
 ```
-┌────────────────────────────────────────────────────────┐
-│  Recommended: HERE Traffic Incidents API               │
-│  Endpoint: /v7/incidents                               │
-│  Auth: apiKey query param                              │
-│  Coverage: India-wide with TRAFFIC/ACCIDENT/CLOSURE    │
-│                                                        │
-│  Recommended: NDMA / IMD Data Feed                     │
-│  For CLIMATE-type alerts (floods, cyclones, heatwaves) │
-└────────────────────────────────────────────────────────┘
+Schema change — user table:
+  ALTER TABLE user
+    ADD COLUMN role ENUM('user', 'admin') NOT NULL DEFAULT 'user';
 ```
 
-Implementation changes needed:
-- Add `provider_incident_id VARCHAR(128) UNIQUE` to `alert` table for idempotency
-- Add HTTP client (axios / node-fetch) with retry and timeout
-- Normalize provider-specific alert types to internal ENUM
-- Add `kafka_published BOOLEAN DEFAULT FALSE` flag for replay on Kafka downtime
-
-### 11.2 JWT Enforcement on api_server
-
-Add an Express middleware to `api_server` that validates the `Authorization: Bearer` token before any subscription mutation:
+The role is included in the JWT payload at login time:
 
 ```javascript
-// middleware/authenticate.js
-const authenticate = (req, res, next) => {
-  const token = req.headers.authorization?.split(' ')[1];
-  try {
-    req.user = jwt.verify(token, process.env.JWT_SECRET);
-    next();
-  } catch {
-    res.status(401).json({ message: 'Unauthorized' });
+jwt.sign({ userId, mobileNumber, name, email, role }, JWT_SECRET, { expiresIn: '7d' })
+```
+
+**Middleware Layer**
+
+Two Express middlewares are introduced in `api_server`:
+
+- `authenticate` — verifies the JWT signature; attaches `req.user` to the request. Applied to all protected routes.
+- `authorize(role)` — checks `req.user.role` against the required role. Returns 403 if insufficient.
+
+```javascript
+// middleware/authorize.js
+const authorize = (requiredRole) => (req, res, next) => {
+  if (req.user?.role !== requiredRole) {
+    return res.status(403).json({ message: 'Forbidden: insufficient permissions.' });
   }
+  next();
 };
 ```
 
-Apply to all `POST`, `DELETE` subscription routes. Remove implicit mobile_number trust.
+**Admin-Specific Capabilities**
 
-### 11.3 Real SMS Integration
+- **Mobile number change** — Currently disabled on the dashboard UI. This is intentional: changing a `mobile_number` cascades across the `subscription` table (FK), invalidates the existing JWT (payload contains the old `mobileNumber`), and changes the SMS delivery address. This operation is too high-impact to be self-service. The intended flow is:
 
-Integrate Twilio or MSG91:
+  ```
+  User submits a "Change Mobile Number" request (new number + OTP verification)
+       ↓
+  Request is queued in a pending_mobile_change table
+       ↓
+  Admin reviews via admin dashboard → approves or rejects
+       ↓
+  On approval: UPDATE user SET mobile_number = new
+               UPDATE subscription SET mobile_number = new (or rely on CASCADE)
+               Invalidate old JWT (force re-login)
+  ```
 
-```javascript
-// services/smsService.js
-const client = require('twilio')(process.env.TWILIO_SID, process.env.TWILIO_AUTH);
-const sendSms = async (to, body) => {
-  await client.messages.create({ from: process.env.TWILIO_NUMBER, to, body });
-};
+- **User management** — View all registered users, deactivate accounts (add `is_active BOOLEAN DEFAULT TRUE` to `user` table), and view any user's subscriptions.
+- **Alert type management** — Add or deprecate alert type ENUM values without a schema migration by introducing an `alert_type_config` table that the UI and scheduler read dynamically.
+- **Notification audit** — View the `notification_log` table (delivered, failed, pending SMS entries) for any user or time window.
+
+**Route-Level Permissions Matrix**
+
+```
+Endpoint                      | user | admin
+------------------------------|------|------
+POST /auth/register           |  ✓   |  ✓
+POST /auth/login              |  ✓   |  ✓
+GET  /api/alerts              |  ✓   |  ✓
+POST /api/add-subscription    |  ✓   |  ✓
+GET  /api/get-subscriptions   |  ✓   |  ✓  (admin can query any mobile)
+DELETE /api/delete-subscription|  ✓  |  ✓
+GET  /api/get-user            |  ✓   |  ✓
+PATCH /api/change-mobile      |  ✗   |  ✓  (admin only)
+GET  /api/admin/users         |  ✗   |  ✓
+PATCH /api/admin/deactivate   |  ✗   |  ✓
+GET  /api/admin/notifications |  ✗   |  ✓
 ```
 
-Add delivery status webhook handling and a `notification_log` table to track sent messages, delivery receipts, and failures.
+---
+
+### 11.2 Live Location Sharing
+
+The current subscription model is **static** — users subscribe to a fixed coordinate. Live Location Sharing allows a user to share their real-time GPS position with the system and receive alerts that follow them as they move.
+
+**How It Works**
+
+The browser's Geolocation API (`navigator.geolocation.watchPosition`) emits a position update whenever the device moves beyond a configurable threshold. Instead of polling REST endpoints, the frontend opens a **persistent WebSocket connection** to the `api_server`. The server pushes alerts that match the user's current position in real time.
+
+**Architecture**
+
+```
+  Browser (mobile or desktop)
+    │
+    │  ws://api_server/live  (WebSocket upgrade)
+    │
+    ▼
+  api_server (Socket.IO alongside Express)
+    │
+    ├── On connect:
+    │     Register session { socketId, mobileNumber, currentLat, currentLon }
+    │     Store in Redis hash: live_session:{socketId}
+    │
+    ├── On location_update event from client:
+    │     Update Redis: live_session:{socketId} → { lat, lon }
+    │     Run GEOSEARCH on alert table (recent alerts, last 30 min)
+    │     For each nearby alert within user's distance threshold:
+    │       emit('alert', alertPayload) back to client
+    │
+    ├── On Kafka consumer processing a new alert:
+    │     Scan active live sessions in Redis
+    │     For each live user within alert radius:
+    │       emit('alert', alertPayload) to their socketId
+    │
+    └── On disconnect:
+          DEL live_session:{socketId}
+```
+
+**Redis Data for Live Sessions**
+
+```
+Hash key:  live_session:{socketId}
+Fields:
+  mobileNumber  → "+91-9999999999"
+  latitude      → "28.6139"
+  longitude     → "77.2090"
+  distance      → "50"         ← user's configured threshold
+  connectedAt   → ISO timestamp
+
+Set key:   active_live_sessions
+Members:   socketId values
+Purpose:   Kafka consumer iterates this set to push alerts to connected users
+```
+
+**Frontend Changes**
+
+- `DashboardPage` gains a "Go Live" toggle.
+- When enabled: `navigator.geolocation.watchPosition` starts; `Socket.IO` client connects and emits `location_update` on each GPS fix.
+- Incoming `alert` events from the socket are pushed into a notification queue rendered as toast messages on the dashboard.
+- When disabled: socket disconnects, live session is cleaned up from Redis.
+
+**Key Design Decisions**
+
+- Socket.IO is chosen over raw WebSockets for its automatic reconnection, heartbeat, and room/namespace support.
+- Live sessions are stored in Redis (not in-process memory) so they survive a pod restart and are accessible by all `api_server` replicas when horizontally scaled.
+- The Kafka consumer checks `active_live_sessions` for every alert it processes — if a live user is nearby, they get an instant socket push in addition to the deferred SMS.
+
+---
+
+### 11.3 Group Registration
+
+Group Registration allows multiple users to be organized into a named group that shares a set of location subscriptions. When an alert fires for a group-subscribed location, every member of the group receives an SMS — without each member needing to configure their subscription independently.
+
+**Use Cases**
+
+- A family where any member travelling near a subscribed location should alert the whole group.
+- A corporate fleet team subscribing all field agents to route-relevant incident alerts.
+- A community group (e.g., apartment residents) monitoring alerts for a shared locality.
+
+**Schema**
+
+```sql
+CREATE TABLE alert_group (
+    group_id      INT AUTO_INCREMENT PRIMARY KEY,
+    group_name    VARCHAR(255) NOT NULL,
+    created_by    VARCHAR(20) NOT NULL,           -- mobile_number of creator
+    created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (created_by) REFERENCES user(mobile_number) ON DELETE CASCADE
+);
+
+CREATE TABLE group_member (
+    id            INT AUTO_INCREMENT PRIMARY KEY,
+    group_id      INT NOT NULL,
+    mobile_number VARCHAR(20) NOT NULL,
+    joined_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (group_id)      REFERENCES alert_group(group_id) ON DELETE CASCADE,
+    FOREIGN KEY (mobile_number) REFERENCES user(mobile_number)   ON DELETE CASCADE,
+    UNIQUE KEY uq_group_member (group_id, mobile_number)
+);
+
+CREATE TABLE group_subscription (
+    id            INT AUTO_INCREMENT PRIMARY KEY,
+    group_id      INT NOT NULL,
+    latitude      DECIMAL(10, 8) NOT NULL,
+    longitude     DECIMAL(11, 8) NOT NULL,
+    distance      INT NOT NULL DEFAULT 50,
+    created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (group_id) REFERENCES alert_group(group_id) ON DELETE CASCADE,
+    UNIQUE KEY uq_group_sub (group_id, latitude, longitude)
+);
+```
+
+**Redis Changes**
+
+Group subscriptions are indexed in a separate geo key:
+
+```
+GEOADD group_subscriptions_geo lon lat "group:{group_id}||{lat}||{lon}"
+HSET group_sub_meta:group:{group_id}||{lat}||{lon}
+       distance   "50"
+       group_id   "7"
+```
+
+**Kafka Consumer Changes**
+
+The consumer's `processAlert` function is extended to also query `group_subscriptions_geo`. When a group subscription matches:
+
+```
+1. GEOSEARCH group_subscriptions_geo → matching group members
+2. For each matched group_id:
+     SELECT mobile_number FROM group_member WHERE group_id = ?
+3. Add all member mobile numbers to the deduplication Set
+4. Send SMS to each unique mobile number (group members + individual subscribers)
+```
+
+Deduplication across individual and group subscriptions is handled by the existing `Set<mobileNumber>` — a user who has both an individual subscription and is in a matching group only receives one SMS.
+
+**API Endpoints (new)**
+
+```
+POST   /api/groups/create
+         Body: { group_name, mobile_number (creator) }
+         → 201: { group_id, group_name }
+
+POST   /api/groups/add-member
+         Body: { group_id, mobile_number }
+         → 201 or 409 (already a member)
+
+DELETE /api/groups/remove-member
+         Body: { group_id, mobile_number }
+
+POST   /api/groups/add-subscription
+         Body: { group_id, latitude, longitude, distance }
+         → Writes to MySQL group_subscription + Redis group_subscriptions_geo
+
+DELETE /api/groups/delete-subscription
+         Body: { group_id, latitude, longitude }
+
+GET    /api/groups?mobile_number=xxx
+         → All groups the user belongs to (as creator or member)
+
+GET    /api/groups/:group_id/members
+         → List of all members in the group
+```
+
+**Frontend Changes**
+
+- A new "Groups" section on the `DashboardPage` alongside the individual Subscriptions section.
+- Creator can name a group, invite members by mobile number, and add shared location subscriptions.
+- Members see groups they belong to and can leave at any time.
+- Group subscriptions are displayed on the live map with a distinct marker style to differentiate them from personal subscriptions.
 
 ### 11.4 Multi-Channel Notifications
 
